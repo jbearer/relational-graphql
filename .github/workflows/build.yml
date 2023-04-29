@@ -1,4 +1,4 @@
-name: Build and Test Rust Code
+name: Build and Test
 
 on:
   push:
@@ -46,6 +46,8 @@ jobs:
       - name: Lint
         run: |
           nix develop -c cargo clippy --all-features --all-targets --workspace -- -D warnings
+          nix develop -c cargo clippy --all-targets --workspace -- -D warnings
+          nix develop -c cargo clippy --no-default-features --all-targets --workspace -- -D warnings
 
       - name: Build
         run: |
