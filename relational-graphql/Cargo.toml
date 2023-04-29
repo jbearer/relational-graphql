@@ -24,7 +24,7 @@ derive_more = "0.99"
 generic-array = "0.14"
 is_type = "0.2"
 relational-graphql-derive = { path = "../relational-graphql-derive" }
-sealed = "0.4"
+sealed = "0.5"
 snafu = "0.7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
