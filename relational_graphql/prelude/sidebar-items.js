@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"attr":["Object"],"derive":["Query","Resource"],"macro":["value"],"struct":["EmptyMutation","EmptySubscription","Schema"]};

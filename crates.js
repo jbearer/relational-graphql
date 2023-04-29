@@ -1,0 +1,1 @@
+window.ALL_CRATES = ["relational_graphql","relational_graphql_derive"];

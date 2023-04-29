@@ -1,0 +1,120 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="This trait proves that a scalar is one of the supported scalar types."><title>ScalarVisitor in relational_graphql::graphql::type_system::scalar - Rust</title><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../static.files/SourceSerif4-Regular-46f98efaafac5295.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../static.files/FiraSans-Regular-018c141bf0843ffd.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../static.files/FiraSans-Medium-8f9a781e4970d388.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../static.files/SourceCodePro-Regular-562dcc5011b6de7d.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../static.files/SourceSerif4-Bold-a2c9cd1067f8b328.ttf.woff2"><link rel="preload" as="font" type="font/woff2" crossorigin href="../../../../static.files/SourceCodePro-Semibold-d899c5a5c4aeb14a.ttf.woff2"><link rel="stylesheet" href="../../../../static.files/normalize-76eba96aa4d2e634.css"><link rel="stylesheet" href="../../../../static.files/rustdoc-c4dbdcde0fbd8430.css" id="mainThemeStyle"><link rel="stylesheet" id="themeStyle" href="../../../../static.files/light-db279b6232be9c13.css"><link rel="stylesheet" disabled href="../../../../static.files/dark-cf923f49f397b216.css"><link rel="stylesheet" disabled href="../../../../static.files/ayu-be46fdc453a55015.css"><script src="../../../../static.files/storage-3891ce972e3a2bf8.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../../../static.files/main-98a684e84ae5b08b.js"></script><noscript><link rel="stylesheet" href="../../../../static.files/noscript-13285aec31fa243e.css"></noscript><link rel="alternate icon" type="image/png" href="../../../../static.files/favicon-16x16-8b506e7a72182f1c.png"><link rel="alternate icon" type="image/png" href="../../../../static.files/favicon-32x32-422f7d1d52889060.png"><link rel="icon" type="image/svg+xml" href="../../../../static.files/favicon-2c020d218678b618.svg"></head><body class="rustdoc trait"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle">&#9776;</button><a class="logo-container" href="../../../../relational_graphql/index.html"><img class="rust-logo" src="../../../../static.files/rust-logo-151179464ae7ed46.svg" alt="logo"></a><h2></h2></nav><nav class="sidebar"><a class="logo-container" href="../../../../relational_graphql/index.html"><img class="rust-logo" src="../../../../static.files/rust-logo-151179464ae7ed46.svg" alt="logo"></a><h2 class="location"><a href="#">ScalarVisitor</a></h2><div class="sidebar-elems"><section><h3><a href="#required-associated-types">Required Associated Types</a></h3><ul class="block"><li><a href="#associatedtype.Output">Output</a></li></ul><h3><a href="#required-methods">Required Methods</a></h3><ul class="block"><li><a href="#tymethod.visit_i32">visit_i32</a></li><li><a href="#tymethod.visit_i64">visit_i64</a></li><li><a href="#tymethod.visit_string">visit_string</a></li><li><a href="#tymethod.visit_u32">visit_u32</a></li><li><a href="#tymethod.visit_u64">visit_u64</a></li></ul><h3><a href="#implementors">Implementors</a></h3></section><h2><a href="index.html">In relational_graphql::graphql::type_system::scalar</a></h2></div></nav><main><div class="width-limiter"><nav class="sub"><form class="search-form"><span></span><input class="search-input" name="search" aria-label="Run search in the documentation" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"><div id="help-button" title="help" tabindex="-1"><a href="../../../../help.html">?</a></div><div id="settings-menu" tabindex="-1"><a href="../../../../settings.html" title="settings"><img width="22" height="22" alt="Change settings" src="../../../../static.files/wheel-7b819b6101059cd0.svg"></a></div></form></nav><section id="main-content" class="content"><div class="main-heading"><h1>Trait <a href="../../../index.html">relational_graphql</a>::<wbr><a href="../../index.html">graphql</a>::<wbr><a href="../index.html">type_system</a>::<wbr><a href="index.html">scalar</a>::<wbr><a class="trait" href="#">ScalarVisitor</a><button id="copy-path" title="Copy item path to clipboard"><img src="../../../../static.files/clipboard-7571035ce49a181d.svg" width="19" height="18" alt="Copy item path"></button></h1><span class="out-of-band"><a class="srclink" href="../../../../src/relational_graphql/graphql/type_system.rs.html#281-309">source</a> · <button id="toggle-all-docs" title="collapse all docs">[<span>&#x2212;</span>]</button></span></div><pre class="rust item-decl"><code>pub trait ScalarVisitor&lt;T: <a class="trait" href="trait.Scalar.html" title="trait relational_graphql::graphql::type_system::scalar::Scalar">Scalar</a>&gt; {
+    type <a href="#associatedtype.Output" class="associatedtype">Output</a>;
+
+    // Required methods
+    fn <a href="#tymethod.visit_i32" class="fn">visit_i32</a>(self) -&gt; Self::<a class="associatedtype" href="trait.ScalarVisitor.html#associatedtype.Output" title="type relational_graphql::graphql::type_system::scalar::ScalarVisitor::Output">Output</a>
+       <span class="where">where T: <a class="trait" href="i32_scalar/trait.Trait.html" title="trait relational_graphql::graphql::type_system::scalar::i32_scalar::Trait">I32Scalar</a></span>;
+<span class="item-spacer"></span>    fn <a href="#tymethod.visit_i64" class="fn">visit_i64</a>(self) -&gt; Self::<a class="associatedtype" href="trait.ScalarVisitor.html#associatedtype.Output" title="type relational_graphql::graphql::type_system::scalar::ScalarVisitor::Output">Output</a>
+       <span class="where">where T: <a class="trait" href="i64_scalar/trait.Trait.html" title="trait relational_graphql::graphql::type_system::scalar::i64_scalar::Trait">I64Scalar</a></span>;
+<span class="item-spacer"></span>    fn <a href="#tymethod.visit_u32" class="fn">visit_u32</a>(self) -&gt; Self::<a class="associatedtype" href="trait.ScalarVisitor.html#associatedtype.Output" title="type relational_graphql::graphql::type_system::scalar::ScalarVisitor::Output">Output</a>
+       <span class="where">where T: <a class="trait" href="u32_scalar/trait.Trait.html" title="trait relational_graphql::graphql::type_system::scalar::u32_scalar::Trait">U32Scalar</a></span>;
+<span class="item-spacer"></span>    fn <a href="#tymethod.visit_u64" class="fn">visit_u64</a>(self) -&gt; Self::<a class="associatedtype" href="trait.ScalarVisitor.html#associatedtype.Output" title="type relational_graphql::graphql::type_system::scalar::ScalarVisitor::Output">Output</a>
+       <span class="where">where T: <a class="trait" href="u64_scalar/trait.Trait.html" title="trait relational_graphql::graphql::type_system::scalar::u64_scalar::Trait">U64Scalar</a></span>;
+<span class="item-spacer"></span>    fn <a href="#tymethod.visit_string" class="fn">visit_string</a>(self) -&gt; Self::<a class="associatedtype" href="trait.ScalarVisitor.html#associatedtype.Output" title="type relational_graphql::graphql::type_system::scalar::ScalarVisitor::Output">Output</a>
+       <span class="where">where T: <a class="trait" href="trait.StringScalar.html" title="trait relational_graphql::graphql::type_system::scalar::StringScalar">StringScalar</a></span>;
+}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>This trait proves that a scalar is one of the supported scalar types.</p>
+<p>In order to implement a backend, it is often essential to have a finite, known set of scalar
+types which the backend must represent. For example, an RDBMS backend will need to map
+scalar types to the primitive types supported by the database (e.g. <code>integer</code>, <code>text</code>,
+etc.). This trait proves that, given a bound <code>T: Scalar</code>, <code>T</code> is one of the following
+supported scalar types:</p>
+<ul>
+<li><a href="https://doc.rust-lang.org/1.69.0/std/primitive.i32.html" title="primitive std::i32"><code>i32</code></a></li>
+<li><a href="https://doc.rust-lang.org/1.69.0/std/primitive.i64.html" title="primitive std::i64"><code>i64</code></a></li>
+<li><a href="https://doc.rust-lang.org/1.69.0/std/primitive.u32.html" title="primitive std::u32"><code>u32</code></a></li>
+<li><a href="https://doc.rust-lang.org/1.69.0/std/primitive.u64.html" title="primitive std::u64"><code>u64</code></a></li>
+<li><a href="https://doc.rust-lang.org/1.69.0/alloc/string/struct.String.html" title="struct alloc::string::String"><code>String</code></a>
+and it proves this in a way that makes this fact usable in Rust code. This is stronger than
+the [<code>macro@sealed</code>] mechanism (which we also use for scalars) which prevents other
+implementations of the <a href="trait.Scalar.html" title="trait relational_graphql::graphql::type_system::scalar::Scalar"><code>Scalar</code></a> trait, but which does not allow the Rust compiler to <em>use</em>
+the information that there are no other implementations.</li>
+</ul>
+<p>This trait allows a backend to pattern match on a <a href="trait.Scalar.html" title="trait relational_graphql::graphql::type_system::scalar::Scalar"><code>Scalar</code></a> type, providing functions to
+handle only the supported cases. This effectively lists Rust’s total pattern matching on
+enums to the type level. Just like in each arm of a <code>match</code> expression you can use the fact
+that the variable being matched is a particular variant of an <code>enum</code>, in each method of this
+trait you can use the fact that <code>T</code> is a certain scalar type, by means of the [<code>Is</code>] trait
+for type-level equality.</p>
+<h2 id="examples"><a href="#examples">Examples</a></h2>
+<p>Suppose we want to check if a scalar value is a default value (0 for integer types and empty
+for strings). We could write the following function:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">fn </span>is_default_strict&lt;T: Scalar + Default + PartialEq&gt;(value: <span class="kw-2">&amp;</span>T) -&gt; bool {
+    <span class="kw-2">*</span>value == T::default()
+}</code></pre></div>
+<p>But this function has a strict type bound: it is only callable if <code>T</code> satisfies the extra
+trait bounds <a href="https://doc.rust-lang.org/1.69.0/core/default/trait.Default.html" title="trait core::default::Default"><code>Default</code></a> and <a href="https://doc.rust-lang.org/1.69.0/core/cmp/trait.PartialEq.html" title="trait core::cmp::PartialEq"><code>PartialEq</code></a>. We will have to propagate these bounds upward
+through the call stack, which may be difficult if, for example, this function is being
+called on an arbitrary field of a <a href="../resource/trait.Resource.html" title="trait relational_graphql::graphql::type_system::resource::Resource"><code>Resource</code></a> type. We can’t easily write the constraint
+that all fields of the <a href="../resource/trait.Resource.html" title="trait relational_graphql::graphql::type_system::resource::Resource"><code>Resource</code></a> we are working with implement these extra bounds.
+Indeed, take the <a href="../resource/trait.ResourceBuilder.html#tymethod.field" title="method relational_graphql::graphql::type_system::resource::ResourceBuilder::field"><code>ResourceBuilder::field</code></a> method. It must work for all <code>F: Field</code>, not
+just <code>F: Field, F::Type: Default + PartialEq</code>.</p>
+<p>To remove the extra type bounds, we can leverage the fact that a <a href="trait.Scalar.html" title="trait relational_graphql::graphql::type_system::scalar::Scalar"><code>Scalar</code></a> must be one of a
+few types, all of which happen to implement <a href="https://doc.rust-lang.org/1.69.0/core/default/trait.Default.html" title="trait core::default::Default"><code>Default</code></a> and <a href="https://doc.rust-lang.org/1.69.0/core/cmp/trait.PartialEq.html" title="trait core::cmp::PartialEq"><code>PartialEq</code></a>, by performing a
+total pattern match on the type of the scalar:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">fn </span>is_default&lt;T: Scalar&gt;(value: <span class="kw-2">&amp;</span>T) -&gt; bool {
+    <span class="kw">struct </span>Visitor&lt;<span class="lifetime">&#39;a</span>, T&gt;(<span class="kw-2">&amp;</span><span class="lifetime">&#39;a </span>T);
+
+    <span class="kw">impl</span>&lt;<span class="lifetime">&#39;a</span>, T: Scalar&gt; ScalarVisitor&lt;T&gt; <span class="kw">for </span>Visitor&lt;<span class="lifetime">&#39;a</span>, T&gt; {
+        <span class="kw">type </span>Output = bool;
+
+        <span class="kw">fn </span>visit_i32(<span class="self">self</span>) -&gt; bool
+        <span class="kw">where
+            </span>T: I32Scalar
+        {
+            <span class="comment">// Here we can use the fact that `T` is `i32` by casting `self.0` from `&amp;T` to
+            // `&amp;i32`, and then use `i32::default()`.
+            </span><span class="kw">let </span>value = <span class="self">self</span>.<span class="number">0</span>.into_ref();
+            <span class="comment">// Now we can call the stricter typed version of the function to handle the
+            // rest:
+            </span>is_default_strict(value)
+        }
+
+        <span class="comment">// The remaining cases are similar:
+        </span><span class="kw">fn </span>visit_i64(<span class="self">self</span>) -&gt; bool
+        <span class="kw">where
+            </span>T: I64Scalar
+        {
+            is_default_strict(<span class="self">self</span>.<span class="number">0</span>.into_ref())
+        }
+        <span class="kw">fn </span>visit_u32(<span class="self">self</span>) -&gt; bool
+        <span class="kw">where
+            </span>T: U32Scalar
+        {
+            is_default_strict(<span class="self">self</span>.<span class="number">0</span>.into_ref())
+        }
+        <span class="kw">fn </span>visit_u64(<span class="self">self</span>) -&gt; bool
+        <span class="kw">where
+            </span>T: U64Scalar
+        {
+            is_default_strict(<span class="self">self</span>.<span class="number">0</span>.into_ref())
+        }
+        <span class="kw">fn </span>visit_string(<span class="self">self</span>) -&gt; bool
+        <span class="kw">where
+            </span>T: StringScalar
+        {
+            is_default_strict(<span class="self">self</span>.<span class="number">0</span>.into_ref())
+        }
+    }
+
+    T::visit(Visitor(value))
+}</code></pre></div>
+<p>The more permissive <code>is_default</code> requires a lot more code than the stricter
+<code>is_default_strict</code>, because we cannot treat all cases the same using a single trait bound.
+Instead we must explicitly handle each case, proving to the Rust compiler that in each one,
+the type in question works in the way we want to use it. Still, this type of pattern
+matching may be a crucial function for backend implementations in case they require some
+specific extra trait bound on scalar types and don’t have a good place to put it.</p>
+</div></details><h2 id="required-associated-types" class="small-section-header">Required Associated Types<a href="#required-associated-types" class="anchor">§</a></h2><div class="methods"><details class="toggle" open><summary><section id="associatedtype.Output" class="method"><a class="srclink rightside" href="../../../../src/relational_graphql/graphql/type_system.rs.html#283">source</a><h4 class="code-header">type <a href="#associatedtype.Output" class="associatedtype">Output</a></h4></section></summary><div class="docblock"><p>The type of value which is returned by this type-level match.</p>
+</div></details></div><h2 id="required-methods" class="small-section-header">Required Methods<a href="#required-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="tymethod.visit_i32" class="method"><a class="srclink rightside" href="../../../../src/relational_graphql/graphql/type_system.rs.html#286-288">source</a><h4 class="code-header">fn <a href="#tymethod.visit_i32" class="fn">visit_i32</a>(self) -&gt; Self::<a class="associatedtype" href="trait.ScalarVisitor.html#associatedtype.Output" title="type relational_graphql::graphql::type_system::scalar::ScalarVisitor::Output">Output</a><span class="where fmt-newline">where
+    T: <a class="trait" href="i32_scalar/trait.Trait.html" title="trait relational_graphql::graphql::type_system::scalar::i32_scalar::Trait">I32Scalar</a>,</span></h4></section></summary><div class="docblock"><p>Handle the case where <code>T</code> is <a href="https://doc.rust-lang.org/1.69.0/std/primitive.i32.html" title="primitive std::i32"><code>i32</code></a>.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="tymethod.visit_i64" class="method"><a class="srclink rightside" href="../../../../src/relational_graphql/graphql/type_system.rs.html#291-293">source</a><h4 class="code-header">fn <a href="#tymethod.visit_i64" class="fn">visit_i64</a>(self) -&gt; Self::<a class="associatedtype" href="trait.ScalarVisitor.html#associatedtype.Output" title="type relational_graphql::graphql::type_system::scalar::ScalarVisitor::Output">Output</a><span class="where fmt-newline">where
+    T: <a class="trait" href="i64_scalar/trait.Trait.html" title="trait relational_graphql::graphql::type_system::scalar::i64_scalar::Trait">I64Scalar</a>,</span></h4></section></summary><div class="docblock"><p>Handle the case where <code>T</code> is <a href="https://doc.rust-lang.org/1.69.0/std/primitive.i64.html" title="primitive std::i64"><code>i64</code></a>.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="tymethod.visit_u32" class="method"><a class="srclink rightside" href="../../../../src/relational_graphql/graphql/type_system.rs.html#296-298">source</a><h4 class="code-header">fn <a href="#tymethod.visit_u32" class="fn">visit_u32</a>(self) -&gt; Self::<a class="associatedtype" href="trait.ScalarVisitor.html#associatedtype.Output" title="type relational_graphql::graphql::type_system::scalar::ScalarVisitor::Output">Output</a><span class="where fmt-newline">where
+    T: <a class="trait" href="u32_scalar/trait.Trait.html" title="trait relational_graphql::graphql::type_system::scalar::u32_scalar::Trait">U32Scalar</a>,</span></h4></section></summary><div class="docblock"><p>Handle the case where <code>T</code> is <a href="https://doc.rust-lang.org/1.69.0/std/primitive.u32.html" title="primitive std::u32"><code>u32</code></a>.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="tymethod.visit_u64" class="method"><a class="srclink rightside" href="../../../../src/relational_graphql/graphql/type_system.rs.html#301-303">source</a><h4 class="code-header">fn <a href="#tymethod.visit_u64" class="fn">visit_u64</a>(self) -&gt; Self::<a class="associatedtype" href="trait.ScalarVisitor.html#associatedtype.Output" title="type relational_graphql::graphql::type_system::scalar::ScalarVisitor::Output">Output</a><span class="where fmt-newline">where
+    T: <a class="trait" href="u64_scalar/trait.Trait.html" title="trait relational_graphql::graphql::type_system::scalar::u64_scalar::Trait">U64Scalar</a>,</span></h4></section></summary><div class="docblock"><p>Handle the case where <code>T</code> is <a href="https://doc.rust-lang.org/1.69.0/std/primitive.u64.html" title="primitive std::u64"><code>u64</code></a>.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="tymethod.visit_string" class="method"><a class="srclink rightside" href="../../../../src/relational_graphql/graphql/type_system.rs.html#306-308">source</a><h4 class="code-header">fn <a href="#tymethod.visit_string" class="fn">visit_string</a>(self) -&gt; Self::<a class="associatedtype" href="trait.ScalarVisitor.html#associatedtype.Output" title="type relational_graphql::graphql::type_system::scalar::ScalarVisitor::Output">Output</a><span class="where fmt-newline">where
+    T: <a class="trait" href="trait.StringScalar.html" title="trait relational_graphql::graphql::type_system::scalar::StringScalar">StringScalar</a>,</span></h4></section></summary><div class="docblock"><p>Handle the case where <code>T</code> is <a href="https://doc.rust-lang.org/1.69.0/alloc/string/struct.String.html" title="struct alloc::string::String"><code>String</code></a>.</p>
+</div></details></div><h2 id="implementors" class="small-section-header">Implementors<a href="#implementors" class="anchor">§</a></h2><div id="implementors-list"></div><script src="../../../../implementors/relational_graphql/graphql/type_system/scalar/trait.ScalarVisitor.js" async></script></section></div></main><div id="rustdoc-vars" data-root-path="../../../../" data-static-root-path="../../../../static.files/" data-current-crate="relational_graphql" data-themes="" data-resource-suffix="" data-rustdoc-version="1.69.0 (84c898d65 2023-04-16)" data-search-js="search-8a59a8356673ec1f.js" data-settings-js="settings-f0c5c39777a9a2f6.js" data-settings-css="settings-0bcba95ff279c1db.css" ></div></body></html>

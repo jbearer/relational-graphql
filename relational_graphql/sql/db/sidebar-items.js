@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Clause","ConstraintKind","SelectColumn","Type","Value"],"fn":["escape_ident"],"mod":["postgres","temp"],"struct":["Column","JoinClause","SchemaColumn","WhereClause"],"trait":["AlterTable","AlterTableExt","Connection","CreateTable","CreateTableExt","Error","Insert","Row","Select","SelectExt"]};

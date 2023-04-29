@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"attr":["Object"],"derive":["InputObject","OneofObject","Query","SimpleObject"],"externcrate":["async_graphql"],"macro":["value"],"mod":["backend","connection","type_system"],"struct":["EmptyFields","EmptyMutation","EmptySubscription","Schema"],"trait":["InputType","ObjectType","OutputType"],"type":["Context","Result"]};

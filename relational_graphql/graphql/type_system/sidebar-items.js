@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"macro":["array"],"mod":["resource","scalar"],"trait":["BuildError","Builder","Predicate","Type","Visitor"]};

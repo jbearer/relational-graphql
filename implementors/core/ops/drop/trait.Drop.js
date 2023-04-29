@@ -1,0 +1,3 @@
+(function() {var implementors = {
+"relational_graphql":[["impl&lt;Db: <a class=\"trait\" href=\"relational_graphql/sql/db/trait.Connection.html\" title=\"trait relational_graphql::sql::db::Connection\">Connection</a>&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/1.69.0/core/ops/drop/trait.Drop.html\" title=\"trait core::ops::drop::Drop\">Drop</a> for <a class=\"struct\" href=\"relational_graphql/sql/db/temp/struct.TempDatabase.html\" title=\"struct relational_graphql::sql::db::temp::TempDatabase\">TempDatabase</a>&lt;Db&gt;"]]
+};if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
