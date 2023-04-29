@@ -9,6 +9,7 @@ use std::fmt::{self, Display, Formatter};
 
 pub mod mock;
 pub mod postgres;
+pub mod temp;
 
 /// Errors returned by the database.
 pub trait Error: Sized + Send + std::error::Error {
@@ -80,6 +81,7 @@ impl<'a> SchemaColumn<'a> {
 }
 
 /// A connection to the database.
+#[async_trait]
 pub trait Connection {
     /// Errors returned from queries.
     type Error: Error;
@@ -103,6 +105,12 @@ pub trait Connection {
     type Insert<'a, N: Length>: Insert<N, Error = Self::Error>
     where
         Self: 'a;
+
+    /// Create a new database and connect to it.
+    async fn create_db(&mut self, name: &str) -> Result<(), Self::Error>;
+
+    /// Drop the named database.
+    async fn drop_db(&mut self, name: &str) -> Result<(), Self::Error>;
 
     /// Start a `CREATE TABLE` statement.
     ///
@@ -165,7 +173,7 @@ pub enum Type {
 }
 
 /// A primitive value supported by a SQL database.
-#[derive(Clone, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Hash, From, TryInto)]
+#[derive(Clone, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Hash, From)]
 pub enum Value {
     /// A text string.
     #[display(fmt = "{}", _0)]
@@ -187,6 +195,52 @@ pub enum Value {
     #[from(ignore)]
     Serial(u32),
 }
+
+impl TryFrom<Value> for String {
+    type Error = String;
+
+    fn try_from(v: Value) -> Result<Self, Self::Error> {
+        match v {
+            Value::Text(s) => Ok(s),
+            v => Err(format!("type mismatch (expected string, got {})", v.ty())),
+        }
+    }
+}
+
+macro_rules! try_from_int_value {
+    ($t:ty) => {
+        impl TryFrom<Value> for $t {
+            type Error = String;
+
+            fn try_from(v: Value) -> Result<Self, Self::Error> {
+                match v {
+                    Value::Int4(x) => x
+                        .try_into()
+                        .map_err(|err| format!("out of range for type {}: {err}", stringify!($t))),
+                    Value::Int8(x) => x
+                        .try_into()
+                        .map_err(|err| format!("out of range for type {}: {err}", stringify!($t))),
+                    Value::UInt4(x) => x
+                        .try_into()
+                        .map_err(|err| format!("out of range for type {}: {err}", stringify!($t))),
+                    Value::UInt8(x) => x
+                        .try_into()
+                        .map_err(|err| format!("out of range for type {}: {err}", stringify!($t))),
+                    _ => Err(format!(
+                        "type mismatch (expected {}, got {})",
+                        stringify!($t),
+                        v.ty()
+                    )),
+                }
+            }
+        }
+    };
+}
+
+try_from_int_value!(i32);
+try_from_int_value!(i64);
+try_from_int_value!(u32);
+try_from_int_value!(u64);
 
 impl Value {
     pub fn ty(&self) -> Type {

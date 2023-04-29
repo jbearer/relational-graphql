@@ -51,14 +51,41 @@ fn generate_struct(name: Ident, attrs: Vec<Attribute>) -> TokenStream {
             #[doc = #doc]
             async fn #name(
                 &self,
+                ctx: &Context<'_>,
                 #[graphql(name = "where")]
-                pred: Option<<#ty as Type>::Predicate>,
+                filter: Option<<#ty as Type>::Predicate>,
                 after: Option<String>,
                 before: Option<String>,
-                first: Option<usize>,
-                last: Option<usize>,
-            ) -> Result<Connection<Cursor<D, #ty>, #ty, EmptyFields, EmptyFields>> {
-                todo!()
+                first: Option<i32>,
+                last: Option<i32>,
+            ) -> Result<Connection<Cursor<GraphQLBackend, #ty>, #ty, EmptyFields, EmptyFields>> {
+                connection::query(after, before, first, last, |after, before, first, last| async move {
+                    // Load the resource from the database.
+                    let db = ctx.data::<GraphQLBackend>()?;
+                    let resource = db.query::<#ty>(filter).await?;
+
+                    // Load the requested page.
+                    let req = PageRequest { after, before, first, last };
+                    let page = db.load_page(&resource, req).await?;
+
+                    // Convert it into a GraphQL connection.
+                    let has_previous = page
+                        .first()
+                        .map(|edge| resource.has_previous(edge.cursor()))
+                        .unwrap_or(false);
+                    let has_next = page
+                        .last()
+                        .map(|edge| resource.has_next(edge.cursor()))
+                        .unwrap_or(false);
+                    let mut conn = Connection::with_additional_fields(
+                        has_previous,
+                        has_next,
+                        resource.into_fields(),
+                    );
+                    conn.edges.extend(page.into_iter().map(|edge| edge.into()));
+
+                    Ok::<_, async_graphql::Error>(conn)
+                }).await
             }
         }
     });
@@ -76,8 +103,9 @@ fn generate_struct(name: Ident, attrs: Vec<Attribute>) -> TokenStream {
         mod #mod_name {
             use super::*;
             use #graphql::{
-                async_graphql, connection::Connection, backend::{Cursor, DataSource},
-                type_system::Type, D, EmptyFields, Result,
+                async_graphql, connection::{self, Connection},
+                backend::{Connection as _, Cursor, DataSource, PageRequest},
+                type_system::Type, Context, EmptyFields, Object, Result,
             };
 
             #[Object]
@@ -88,7 +116,9 @@ fn generate_struct(name: Ident, attrs: Vec<Attribute>) -> TokenStream {
 
             impl #name {
                 /// Register all resources in the ontology represented by this query object.
-                pub async fn register<D: DataSource>(db: &mut D) -> Result<(), D::Error> {
+                pub async fn register(
+                    db: &mut GraphQLBackend,
+                ) -> Result<(), <GraphQLBackend as DataSource>::Error> {
                     #(#registers)*
                     Ok(())
                 }

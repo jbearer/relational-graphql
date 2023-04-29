@@ -2,6 +2,7 @@
 
 pub use crate::graphql::{
     async_graphql::{self, value},
+    backend::default::*,
     type_system::{BelongsTo, Id, Many, Resource, Scalar, Type},
     EmptyMutation, EmptySubscription, Object, Query, Schema,
 };

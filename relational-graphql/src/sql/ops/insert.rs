@@ -40,14 +40,18 @@ fn build_row<T: gql::Resource>(input: T::ResourceInput) -> Array<Value, T::NumIn
 mod test {
     use super::*;
     use crate::{
-        array, init_logging,
+        self as relational_graphql, // So the derive macros work in the crate itself.
+        array,
+        init_logging,
         sql::{
             db::{mock, SchemaColumn, Type},
-            ops,
+            ops, SqlDataSource,
         },
         typenum::{U2, U3},
     };
     use gql::{BelongsTo, Id, Resource};
+
+    crate::use_backend!(SqlDataSource<mock::Connection>);
 
     /// A simple test resource with scalar fields.
     #[derive(Clone, Debug, PartialEq, Eq, Resource)]

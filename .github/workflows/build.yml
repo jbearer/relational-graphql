@@ -51,9 +51,9 @@ jobs:
 
       - name: Build
         run: |
-          nix develop -c cargo build --release --workspace
+          nix develop -c cargo build --release --all-features --all-targets --workspace
 
       - name: Test
         timeout-minutes: 30
         run:
-          nix develop -c cargo test --release --workspace --verbose -- -Zunstable-options --report-time --test-threads 2
+          nix develop -c cargo test --release --all-features --all-targets --workspace --verbose -- -Zunstable-options --report-time --test-threads 2

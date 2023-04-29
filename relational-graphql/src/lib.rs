@@ -33,9 +33,6 @@ pub mod graphql;
 pub mod prelude;
 pub mod sql;
 
-/// The default [`DataSource`](graphql::backend::DataSource) used as a backend for GraphQL APIs.
-pub use sql::PostgresDataSource as DataSource;
-
 /// Initialize tracing.
 pub fn init_logging() {
     static ONCE: Once = Once::new();

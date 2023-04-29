@@ -285,11 +285,15 @@ fn compile_predicate<'a, 'b, Q: Select<'a>, T: gql::Resource>(
         }
 
         fn visit_many_to_one_in_place<R: gql::ManyToOneRelation<Owner = T>>(&mut self) {
-            unimplemented!("relations predicates")
+            if let Some(_sub_pred) = R::take_predicate(&mut self.pred) {
+                unimplemented!("relations predicates")
+            }
         }
 
         fn visit_many_to_many_in_place<R: gql::ManyToManyRelation<Owner = T>>(&mut self) {
-            unimplemented!("relations predicates")
+            if let Some(_sub_pred) = R::take_predicate(&mut self.pred) {
+                unimplemented!("relations predicates")
+            }
         }
 
         fn end(self) -> Q {
@@ -361,7 +365,9 @@ impl<'a, R: Row, T: gql::Resource> gql::ResourceBuilder<T> for ResourceBuilder<'
 mod test {
     use super::*;
     use crate::{
-        array, init_logging,
+        self as relational_graphql, // So the derive macros work in the crate itself.
+        array,
+        init_logging,
         sql::db::{mock, SchemaColumn, Type, Value},
     };
     use generic_array::typenum::{U2, U3};

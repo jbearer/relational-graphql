@@ -23,8 +23,8 @@ pub enum Error {
         error: String,
     },
 
-    #[snafu(display("type mismatch (expected {expected}, got {got})"))]
-    TypeMismatch { expected: &'static str, got: Type },
+    #[snafu(display("type mismatch: {error}"))]
+    TypeMismatch { error: String },
 
     #[snafu(display("error building type {ty}: {error}"))]
     Build { ty: &'static str, error: String },
@@ -153,62 +153,52 @@ fn value_to_scalar<T: gql::Scalar>(val: Value) -> Result<T, Error> {
         where
             T: gql::I32Scalar,
         {
-            let ty = self.0.ty();
-            Ok(T::from_val(self.0.try_into().map_err(|_| {
-                Error::TypeMismatch {
-                    expected: "i32",
-                    got: ty,
-                }
-            })?))
+            Ok(T::from_val(
+                self.0
+                    .try_into()
+                    .map_err(|error| Error::TypeMismatch { error })?,
+            ))
         }
 
         fn visit_i64(self) -> Self::Output
         where
             T: Is<Type = i64>,
         {
-            let ty = self.0.ty();
-            Ok(T::from_val(self.0.try_into().map_err(|_| {
-                Error::TypeMismatch {
-                    expected: "i64",
-                    got: ty,
-                }
-            })?))
+            Ok(T::from_val(
+                self.0
+                    .try_into()
+                    .map_err(|error| Error::TypeMismatch { error })?,
+            ))
         }
         fn visit_u32(self) -> Self::Output
         where
             T: Is<Type = u32>,
         {
-            let ty = self.0.ty();
-            Ok(T::from_val(self.0.try_into().map_err(|_| {
-                Error::TypeMismatch {
-                    expected: "u32",
-                    got: ty,
-                }
-            })?))
+            Ok(T::from_val(
+                self.0
+                    .try_into()
+                    .map_err(|error| Error::TypeMismatch { error })?,
+            ))
         }
         fn visit_u64(self) -> Self::Output
         where
             T: Is<Type = u64>,
         {
-            let ty = self.0.ty();
-            Ok(T::from_val(self.0.try_into().map_err(|_| {
-                Error::TypeMismatch {
-                    expected: "u64",
-                    got: ty,
-                }
-            })?))
+            Ok(T::from_val(
+                self.0
+                    .try_into()
+                    .map_err(|error| Error::TypeMismatch { error })?,
+            ))
         }
         fn visit_string(self) -> Self::Output
         where
             T: Is<Type = String>,
         {
-            let ty = self.0.ty();
-            Ok(T::from_val(self.0.try_into().map_err(|_| {
-                Error::TypeMismatch {
-                    expected: "string",
-                    got: ty,
-                }
-            })?))
+            Ok(T::from_val(
+                self.0
+                    .try_into()
+                    .map_err(|error| Error::TypeMismatch { error })?,
+            ))
         }
     }
 

@@ -13,10 +13,12 @@ a relational database.
 
 ### Near-term Roadmap
 * Predicates on relations
+* Enums
+* Connection and edge fields
 * One-to-one relationships (optional on both ends)
 * Multiple references to the same resource, using aliases
 * Efficient paging
-* Swappable backend
+* Sorting
 
 ### Coming in Future Versions
 * Modular: easily add a powerful SQL data source to your existing GraphQL application, and compose

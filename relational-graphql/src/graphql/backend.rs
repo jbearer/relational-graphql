@@ -145,3 +145,52 @@ pub type Paginated<D, T, C = EmptyFields, E = EmptyFields> = <D as DataSource>::
 /// An index into a [`Paginated`] list of objects.
 pub type Cursor<D, T, C = EmptyFields, E = EmptyFields> =
     <Paginated<D, T, C, E> as Connection<C>>::Cursor;
+
+pub mod default {
+    #![doc(hidden)]
+    //! Default backend type for derived GraphQL schemas.
+    //!
+    //! The monomorphic nature of GraphQL's type system makes it difficult to parameterize a GraphQL
+    //! schema on a backend type. Still, we would like at least some choice in the type of backend
+    //! we use when constructing a schema. As a workaround, schemas generated via the derive macros
+    //! [`Resource`](macro@crate::prelude::Resource) and [`Query`](macro@crate::prelude::Query) use
+    //! a type alias named `GraphQLBackend` as the backend in their resolvers. This module exists so
+    //! that the generated code can glob import it, bringing the default [`GraphQLBackend`] into
+    //! scope. Since this type alias is brought into scope via a glob import, it can be overridden
+    //! if the module where the schema is defined explicitly defines (or imports) its own
+    //! `GraphQLBackend` alias, such as with the [`use_backend`](crate::use_backend) macro.
+
+    /// The default [`DataSource`](super::DataSource) used as a backend for GraphQL APIs.
+    pub type GraphQLBackend = crate::sql::PostgresDataSource;
+}
+
+/// Use a certain [`DataSource`] implementation as the backend in a GraphQL schema.
+///
+/// By default, GraphQL schemas use [`PostgresDataSource`](crate::sql::PostgresDataSource) as their
+/// backend. To use a different backend, use this macro in the module where the schema is defined,
+/// as in:
+///
+/// ```
+/// # mod example {
+/// use relational_graphql::prelude::*;
+///
+/// relational_graphql::use_backend!(relational_graphql::sql::PostgresDataSource);
+///
+/// #[derive(Clone, Resource)]
+/// struct MyResource {
+///     id: Id,
+///     name: String,
+/// }
+///
+/// // Executing queries of this type will use the backend defined above to solve the queries.
+/// #[derive(Query)]
+/// #[query(resource(my_resources: MyResource))]
+/// struct Query;
+/// # }
+/// ```
+#[macro_export]
+macro_rules! use_backend {
+    ($backend:ty) => {
+        type GraphQLBackend = $backend;
+    };
+}

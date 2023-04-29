@@ -220,7 +220,7 @@ fn generate_struct(
                     RelationVisitor, RelationPredicate, RelationPredicateCompiler, Resource,
                     ResourceBuilder, ResourceInput, ResourcePredicate, Type, Value, Visitor,
                 },
-                Context, D, EmptyFields, InputObject, Object, OneofObject, Result,
+                Context, EmptyFields, InputObject, Object, OneofObject, Result,
             };
 
             #[doc = #doc]
@@ -710,14 +710,14 @@ fn generate_resolver(
                 before: Option<String>,
                 first: Option<i32>,
                 last: Option<i32>,
-            ) -> Result<Connection<Cursor<D, #target>, #target, EmptyFields, EmptyFields>> {
+            ) -> Result<Connection<Cursor<GraphQLBackend, #target>, #target, EmptyFields, EmptyFields>> {
                 // The field corresponding to this relation is just a placeholder for declaring the
                 // type of the relation. Use it to silence dead code warnings.
                 let _ = &self.#name;
 
                 connection::query(after, before, first, last, |after, before, first, last| async move {
                     // Load the relation from the database.
-                    let db = ctx.data::<D>()?;
+                    let db = ctx.data::<GraphQLBackend>()?;
                     let relation = db.load_relation::<fields::#meta_name>(self, filter).await?;
 
                     // Load the requested page.

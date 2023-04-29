@@ -56,16 +56,19 @@ impl super::Error for Error {
 }
 
 /// A connection to a PostgreSQL databsae.
-pub struct Connection(tokio_postgres::Client);
+pub struct Connection {
+    client: tokio_postgres::Client,
+    config: Config,
+}
 
 impl Connection {
     /// Establish a new connection with the given [`Config`].
     pub async fn new(config: Config) -> Result<Self, Error> {
-        let (client, conn) = async_postgres::connect(config)
+        let (client, conn) = async_postgres::connect(config.clone())
             .await
             .map_err(|source| Error::Connect { source })?;
         spawn(conn);
-        Ok(Self(client))
+        Ok(Self { client, config })
     }
 
     async fn query<'a, I>(
@@ -83,7 +86,7 @@ impl Connection {
             param
         });
         let stream = self
-            .0
+            .client
             .query_raw(statement, params)
             .await
             .map_err(Error::from)?;
@@ -91,12 +94,46 @@ impl Connection {
     }
 }
 
+#[async_trait]
 impl super::Connection for Connection {
     type Error = Error;
     type AlterTable<'a> = AlterTable<'a>;
     type CreateTable<'a, N: Length> = CreateTable<'a, N>;
     type Select<'a> = Select<'a>;
     type Insert<'a, N: Length> = Insert<'a, N>;
+
+    async fn create_db(&mut self, name: &str) -> Result<(), Error> {
+        self.query(
+            format!("CREATE DATABASE {}", escape_ident(name)).as_str(),
+            [],
+        )
+        .await?;
+
+        // Switch context into the new database.
+        let mut config = self.config.clone();
+        config.dbname(name);
+        let (client, conn) = async_postgres::connect(config)
+            .await
+            .map_err(|source| Error::Connect { source })?;
+        spawn(conn);
+        self.client = client;
+        Ok(())
+    }
+
+    async fn drop_db(&mut self, name: &str) -> Result<(), Error> {
+        let name = escape_ident(name);
+
+        // Switch context into the root database, so we can drop the currently open one.
+        let (client, conn) = async_postgres::connect(self.config.clone())
+            .await
+            .map_err(|source| Error::Connect { source })?;
+        spawn(conn);
+        self.client = client;
+
+        self.query(format!("DROP DATABASE {name}").as_str(), [])
+            .await?;
+        Ok(())
+    }
 
     fn alter_table<'a>(&'a self, table: impl Into<Cow<'a, str>> + Send) -> Self::AlterTable<'a> {
         AlterTable::new(self, table.into())
@@ -437,12 +474,17 @@ impl ToSql for Value {
             Self::Text(x) => x.to_sql(ty, out),
             Self::Int4(x) => x.to_sql(ty, out),
             Self::Int8(x) => x.to_sql(ty, out),
-            Self::UInt4(x) => x.to_sql(ty, out),
+            Self::UInt4(x) => {
+                // [`u32`] translates to the larger SQL type [`int8`], to prevent overflow when
+                // switching from signed to unsigned. To make sure we produce an integer of the
+                // right width, we must first cast into an 8-byte integer and then convert to SQL.
+                (*x as i64).to_sql(ty, out)
+            }
             Self::UInt8(x) => {
-                // [`u64`] doesn't implement [`ToSql`], so we have to cast to a [`u32`] first.
-                let x = u32::try_from(*x).map_err(|_| {
+                // [`u64`] doesn't implement [`ToSql`], so we have to cast to an [`i64`] first.
+                let x = i64::try_from(*x).map_err(|_| {
                     Box::new(Error::OutOfRange {
-                        ty: "u32",
+                        ty: "i64",
                         value: x.to_string(),
                     })
                 })?;
@@ -489,11 +531,13 @@ fn format_constraint(table: impl AsRef<str>, kind: ConstraintKind, cols: &[Strin
                 escape_ident(format!("{table}-uq-{cols_ident}"))
             )
         }
-        ConstraintKind::ForeignKey { table } => {
+        ConstraintKind::ForeignKey {
+            table: foreign_table,
+        } => {
             format!(
                 "CONSTRAINT {} FOREIGN KEY ({cols}) REFERENCES {}",
-                escape_ident(format!("{table}-fk-{table}-{cols_ident}")),
-                escape_ident(table)
+                escape_ident(format!("{table}-fk-{foreign_table}-{cols_ident}")),
+                escape_ident(foreign_table)
             )
         }
     }
@@ -503,6 +547,7 @@ fn format_constraint(table: impl AsRef<str>, kind: ConstraintKind, cols: &[Strin
 mod test {
     use super::*;
     use crate::{
+        self as relational_graphql, // So the derive macros work in the crate itself.
         graphql::{
             backend::DataSource,
             type_system::{Id, IntCmpOp, Resource, Type, Value},

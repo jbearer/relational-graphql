@@ -5,8 +5,8 @@
 #![cfg(any(test, feature = "mocks"))]
 
 use super::{
-    Clause, Column, ConstraintKind, JoinClause, SchemaColumn, SelectColumn, Type, Value,
-    WhereClause,
+    Clause, Column, ConstraintKind, Error as _, JoinClause, SchemaColumn, SelectColumn, Type,
+    Value, WhereClause,
 };
 use crate::{
     typenum::{Sub1, B1},
@@ -174,12 +174,25 @@ impl Connection {
     }
 }
 
+#[async_trait]
 impl super::Connection for Connection {
     type Error = Error;
     type CreateTable<'a, N: Length> = CreateTable<'a, N>;
     type AlterTable<'a> = AlterTable;
     type Select<'a> = Select<'a>;
     type Insert<'a, N: Length> = Insert<'a, N>;
+
+    async fn create_db(&mut self, _name: &str) -> Result<(), Self::Error> {
+        Err(Self::Error::custom(
+            "Mock database does not support creating more databases",
+        ))
+    }
+
+    async fn drop_db(&mut self, _name: &str) -> Result<(), Self::Error> {
+        Err(Self::Error::custom(
+            "Mock database does not support dropping databases",
+        ))
+    }
 
     fn create_table<'a, N: Length>(
         &'a self,

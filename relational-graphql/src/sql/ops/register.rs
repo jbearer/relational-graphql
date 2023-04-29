@@ -216,8 +216,13 @@ impl<'a> Dependencies<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::sql::db::mock;
+    use crate::{
+        self as relational_graphql, // So the derive macros work in the crate itself.
+        sql::{db::mock, SqlDataSource},
+    };
     use gql::{BelongsTo, Id, Resource};
+
+    crate::use_backend!(SqlDataSource<mock::Connection>);
 
     #[derive(Clone, Debug, PartialEq, Eq, Resource)]
     struct Simple {
