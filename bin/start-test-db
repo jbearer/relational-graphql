@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+if [ -z "$POSTGRES_TESTS_PORT" ]; then
+    POSTGRES_TESTS_PORT=5432
+fi
+
+if [ -z "$POSTGRES_TESTS_PASSWORD" ]; then
+    POSTGRES_TESTS_PASSWORD=password
+fi
+
+docker run --name test-postgres -e POSTGRES_PASSWORD="$POSTGRES_TESTS_PASSWORD" -it -p 5432:$POSTGRES_TESTS_PORT postgres

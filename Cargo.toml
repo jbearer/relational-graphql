@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "relational-graphql",
+    "relational-graphql-derive",
+]

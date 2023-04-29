@@ -1,0 +1,57 @@
+name: Build and Test Rust Code
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+env:
+  POSTGRES_TESTS: 1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_PASSWORD: password
+
+    steps:
+      - uses: styfle/cancel-workflow-action@0.11.0
+        name: Cancel Outdated Builds
+        with:
+          all_but_latest: true
+          access_token: ${{ github.token }}
+
+      - uses: actions/checkout@v3
+        name: Checkout Repository
+
+      - uses: Swatinem/rust-cache@v2
+        name: Enable Rust Caching
+        with:
+          cache-on-failure: true
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v18
+
+      - name: Format Check
+        run: nix develop -c cargo fmt -- --check
+
+      - name: Lint
+        run: |
+          nix develop -c cargo clippy --all-features --all-targets --workspace -- -D warnings
+
+      - name: Build
+        run: |
+          nix develop -c cargo build --release --workspace
+
+      - name: Test
+        timeout-minutes: 30
+        run:
+          nix develop -c cargo test --release --workspace --verbose -- -Zunstable-options --report-time --test-threads 2

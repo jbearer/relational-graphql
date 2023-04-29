@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 375b2a91582dffeff050ddc16db5a415f06eff8b5bc66f7b83c9fa4b80896f5e # shrinks to perm = Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
