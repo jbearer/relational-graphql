@@ -2025,7 +2025,7 @@
     <span class="doccomment">/// A many-to-many relation.
     </span><span class="kw">pub trait </span>ManyToManyRelation: Relation {
         <span class="doccomment">/// The relation on target objects which links them back to this object.
-        </span><span class="kw">type </span>Inverse: Relation&lt;Target = <span class="self">Self</span>::Owner, Owner = <span class="self">Self</span>::Target&gt;;
+        </span><span class="kw">type </span>Inverse: ManyToManyRelation&lt;Inverse = <span class="self">Self</span>, Target = <span class="self">Self</span>::Owner, Owner = <span class="self">Self</span>::Target&gt;;
     }
 
     <span class="doccomment">/// A marker type used in the definition of a resource to declare a [`ManyToManyRelation`].

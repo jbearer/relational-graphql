@@ -250,6 +250,39 @@
 <a href="#250" id="250">250</a>
 <a href="#251" id="251">251</a>
 <a href="#252" id="252">252</a>
+<a href="#253" id="253">253</a>
+<a href="#254" id="254">254</a>
+<a href="#255" id="255">255</a>
+<a href="#256" id="256">256</a>
+<a href="#257" id="257">257</a>
+<a href="#258" id="258">258</a>
+<a href="#259" id="259">259</a>
+<a href="#260" id="260">260</a>
+<a href="#261" id="261">261</a>
+<a href="#262" id="262">262</a>
+<a href="#263" id="263">263</a>
+<a href="#264" id="264">264</a>
+<a href="#265" id="265">265</a>
+<a href="#266" id="266">266</a>
+<a href="#267" id="267">267</a>
+<a href="#268" id="268">268</a>
+<a href="#269" id="269">269</a>
+<a href="#270" id="270">270</a>
+<a href="#271" id="271">271</a>
+<a href="#272" id="272">272</a>
+<a href="#273" id="273">273</a>
+<a href="#274" id="274">274</a>
+<a href="#275" id="275">275</a>
+<a href="#276" id="276">276</a>
+<a href="#277" id="277">277</a>
+<a href="#278" id="278">278</a>
+<a href="#279" id="279">279</a>
+<a href="#280" id="280">280</a>
+<a href="#281" id="281">281</a>
+<a href="#282" id="282">282</a>
+<a href="#283" id="283">283</a>
+<a href="#284" id="284">284</a>
+<a href="#285" id="285">285</a>
 </pre><pre class="rust"><code><span class="doccomment">//! Compilation of high-level GraphQL operations into low-level SQL operations.
 
 </span><span class="kw">use </span><span class="kw">super</span>::db::{Column, Type, Value};
@@ -257,6 +290,7 @@
 <span class="kw">use </span>convert_case::{Case, Casing};
 <span class="kw">use </span>is_type::Is;
 <span class="kw">use </span>snafu::Snafu;
+<span class="kw">use </span>std::cmp::{max, min};
 <span class="kw">use </span>std::fmt::Display;
 
 <span class="kw">pub mod </span>insert;
@@ -336,6 +370,38 @@
 <span class="doccomment">/// The name of the column corresponding to the field with name `field_name`.
 </span><span class="kw">fn </span>column_name_of_field(field_name: <span class="kw-2">&amp;</span><span class="lifetime">&#39;static </span>str) -&gt; String {
     to_snake_case(field_name)
+}
+
+<span class="doccomment">/// The name of the join table corresponding to the many-to-many relation `R`.
+</span><span class="kw">fn </span>join_table_name&lt;R: gql::ManyToManyRelation&gt;() -&gt; String {
+    <span class="comment">// Compute a mangled join table name which depends on
+    // * The name of the owner resource
+    // * The relation column within the owner resource
+    // * The name of the target resource
+    // * The relation column within the target resource
+    </span><span class="kw">let </span>owner = join_column_name::&lt;R&gt;();
+    <span class="kw">let </span>target = join_column_name::&lt;R::Inverse&gt;();
+
+    <span class="comment">// We break this name into two parts -- the owner and the target -- and then order these parts
+    // alphabetically, so that the join table name is the same as when we compute it from the
+    // inverse of the relation.
+    </span><span class="kw">let </span>part1 = min(<span class="kw-2">&amp;</span>owner, <span class="kw-2">&amp;</span>target);
+    <span class="kw">let </span>part2 = max(<span class="kw-2">&amp;</span>owner, <span class="kw-2">&amp;</span>target);
+
+    <span class="macro">format!</span>(<span class="string">&quot;{}_join_{}&quot;</span>, part1, part2)
+}
+
+<span class="doccomment">/// The name of the column in the join table representing the many-to-many relation `R`.
+///
+/// This column contains foreign keys for the resource `R::Target`. The target rows are linked to
+/// rows in `R`&#39;s own table via a second column on the table, the inverse of this one, whose name is
+/// `join_column_name::&lt;R::Inverse&gt;()`.
+</span><span class="kw">fn </span>join_column_name&lt;R: gql::ManyToManyRelation&gt;() -&gt; String {
+    <span class="comment">// To create a unique name, combine the relation name and the owner name. This is slightly more
+    // complicated than [`field_column`] because there, all the columns in the table come from
+    // fields of one resource, and are thus already required to be unique, but here, we are
+    // combining two columns from two different resources, that could have the same name.
+    </span><span class="macro">format!</span>(<span class="string">&quot;{}_{}&quot;</span>, table_name::&lt;R::Owner&gt;(), to_snake_case(R::NAME))
 }
 
 <span class="doccomment">/// Convert a string to snake case.
