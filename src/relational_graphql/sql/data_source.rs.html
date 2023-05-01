@@ -151,6 +151,7 @@
 <a href="#151" id="151">151</a>
 <a href="#152" id="152">152</a>
 <a href="#153" id="153">153</a>
+<a href="#154" id="154">154</a>
 </pre><pre class="rust"><code><span class="doccomment">//! Instantiation of a GraphQL [`DataSource`](gql::DataSource) for a SQL database.
 
 </span><span class="kw">use super</span>::{db, ops};
@@ -161,6 +162,7 @@
 };
 <span class="kw">use </span>async_trait::async_trait;
 <span class="kw">use </span>derive_more::From;
+<span class="kw">use </span>std::cmp::min;
 <span class="kw">use </span>std::fmt::Debug;
 
 <span class="attr">#[cfg(feature = <span class="string">&quot;postgres&quot;</span>)]
@@ -278,14 +280,14 @@
 <span class="kw">impl</span>&lt;T: Type, C, E: Clone + ObjectType&gt; SqlConnection&lt;T, C, E&gt; {
     <span class="doccomment">/// Load a page from a paginated connection.
     </span><span class="kw">pub fn </span>load(<span class="kw-2">&amp;</span><span class="self">self</span>, page: PageRequest&lt;usize&gt;) -&gt; Vec&lt;Edge&lt;usize, T, E&gt;&gt; {
-        <span class="kw">let </span>after = page.after.unwrap_or(<span class="number">0</span>);
-        <span class="kw">let </span>before = page.before.unwrap_or(<span class="self">self</span>.edges.len());
+        <span class="kw">let </span>after = min(page.after.unwrap_or(<span class="number">0</span>), <span class="self">self</span>.edges.len());
+        <span class="kw">let </span>before = min(page.before.unwrap_or(<span class="self">self</span>.edges.len()), <span class="self">self</span>.edges.len());
         <span class="kw">let </span>edges = <span class="kw-2">&amp;</span><span class="self">self</span>.edges[after..before];
 
-        <span class="kw">let </span>first = page.first.unwrap_or(edges.len());
+        <span class="kw">let </span>first = min(page.first.unwrap_or(edges.len()), edges.len());
         <span class="kw">let </span>edges = <span class="kw-2">&amp;</span>edges[..first];
 
-        <span class="kw">let </span>last = edges.len() - page.last.unwrap_or(edges.len());
+        <span class="kw">let </span>last = min(edges.len() - page.last.unwrap_or(edges.len()), edges.len());
         <span class="kw">let </span>edges = <span class="kw-2">&amp;</span>edges[last..];
 
         <span class="kw">let </span>offset = after + last;

@@ -582,7 +582,7 @@
 };
 <span class="kw">use </span><span class="kw">crate</span>::graphql::type_system::{<span class="self">self </span><span class="kw">as </span>gql, ResourcePredicate, ScalarPredicate, Type};
 <span class="kw">use </span>std::any::TypeId;
-<span class="kw">use </span>std::collections::HashMap;
+<span class="kw">use </span>std::collections::{HashMap, HashSet};
 <span class="kw">use </span>std::marker::PhantomData;
 <span class="kw">use </span>take_mut::take;
 
@@ -666,7 +666,7 @@
         <span class="prelude-val">None </span>=&gt; {}
     }
 
-    query = query.clauses(std::mem::take(<span class="kw-2">&amp;mut </span>columns.joins).into_values());
+    query = query.clauses(std::mem::take(<span class="kw-2">&amp;mut </span>columns.joins));
     <span class="kw">let </span>rows = query.many().<span class="kw">await</span>.map_err(Error::sql)<span class="question-mark">?</span>;
     rows.iter().map(|row| columns.parse_row(row)).collect()
 }
@@ -676,7 +676,8 @@
 </span><span class="kw">struct </span>ColumnMap {
     index: HashMap&lt;TypeId, usize&gt;,
     columns: Vec&lt;SelectColumn&lt;<span class="lifetime">&#39;static</span>&gt;&gt;,
-    joins: HashMap&lt;TypeId, JoinClause&lt;<span class="lifetime">&#39;static</span>&gt;&gt;,
+    joins: Vec&lt;JoinClause&lt;<span class="lifetime">&#39;static</span>&gt;&gt;,
+    joined_fields: HashSet&lt;TypeId&gt;,
 }
 
 <span class="kw">impl </span>ColumnMap {
@@ -751,17 +752,16 @@
     <span class="kw">where
         </span>F::Type: gql::Resource,
     {
-        <span class="comment">// We join on the column referencing this resource in the original table (`F`) being equal
-        // to the primary key (`Id`) of this resource&#39;s table.
-        </span><span class="self">self</span>.joins.insert(
-            TypeId::of::&lt;F&gt;(),
-            JoinClause {
+        <span class="kw">if </span><span class="self">self</span>.joined_fields.insert(TypeId::of::&lt;F&gt;()) {
+            <span class="comment">// We join on the column referencing this resource in the original table (`F`) being
+            // equal to the primary key (`Id`) of this resource&#39;s table.
+            </span><span class="self">self</span>.joins.push(JoinClause {
                 table: table_name::&lt;F::Type&gt;().into(),
                 lhs: field_column::&lt;F&gt;(),
                 op: <span class="string">&quot;=&quot;</span>.into(),
                 rhs: field_column::&lt;&lt;F::Type <span class="kw">as </span>gql::Resource&gt;::Id&gt;(),
-            },
-        );
+            });
+        }
     }
 
     <span class="doccomment">/// Convert a row of query results into a resource object.
