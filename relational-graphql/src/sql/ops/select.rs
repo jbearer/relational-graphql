@@ -410,7 +410,7 @@ mod test {
         use_backend,
     };
     use generic_array::typenum::{U2, U3};
-    use gql::{Id, Many, Resource};
+    use gql::{BelongsTo, Id, Many, Resource};
 
     use_backend!(SqlDataSource<mock::Connection>);
 
@@ -516,12 +516,16 @@ mod test {
     struct Left {
         id: Id,
         field: i32,
+        #[resource(inverse(left))]
+        parent: BelongsTo<Node>,
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Resource)]
     struct Right {
         id: Id,
         field: i32,
+        #[resource(inverse(right))]
+        parent: BelongsTo<Node>,
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Resource)]
@@ -535,6 +539,44 @@ mod test {
     async fn test_join_filter() {
         init_logging();
 
+        let left = [
+            Left {
+                id: 1,
+                field: 0,
+                parent: Default::default(),
+            },
+            Left {
+                id: 2,
+                field: 1,
+                parent: Default::default(),
+            },
+        ];
+        let right = [
+            Right {
+                id: 1,
+                field: 0,
+                parent: Default::default(),
+            },
+            Right {
+                id: 2,
+                field: 1,
+                parent: Default::default(),
+            },
+        ];
+
+        let nodes = [
+            Node {
+                id: 1,
+                left: left[0].clone(),
+                right: right[1].clone(),
+            },
+            Node {
+                id: 2,
+                left: left[1].clone(),
+                right: right[1].clone(),
+            },
+        ];
+
         let db = mock::Connection::create();
         db.create_table_with_rows::<U2>(
             "lefts",
@@ -542,7 +584,10 @@ mod test {
                 SchemaColumn::new("id", Type::Serial),
                 SchemaColumn::new("field", Type::Int4),
             ],
-            [array![Value; Value::from(0)], array![Value; Value::from(1)]],
+            [
+                array![Value; Value::from(left[0].field)],
+                array![Value; Value::from(left[1].field)],
+            ],
         )
         .await
         .unwrap();
@@ -552,7 +597,10 @@ mod test {
                 SchemaColumn::new("id", Type::Serial),
                 SchemaColumn::new("field", Type::Int4),
             ],
-            [array![Value; Value::from(0)], array![Value; Value::from(1)]],
+            [
+                array![Value; Value::from(right[0].field)],
+                array![Value; Value::from(right[1].field)],
+            ],
         )
         .await
         .unwrap();
@@ -564,29 +612,15 @@ mod test {
                 SchemaColumn::new("right", Type::Int4),
             ],
             [
-                array![Value; Value::from(1), Value::from(2)],
-                array![Value; Value::from(2), Value::from(2)],
+                array![Value; Value::from(nodes[0].left.id), Value::from(nodes[0].right.id)],
+                array![Value; Value::from(nodes[1].left.id), Value::from(nodes[1].right.id)],
             ],
         )
         .await
         .unwrap();
 
         // Select all.
-        assert_eq!(
-            execute::<_, Node>(&db, None).await.unwrap(),
-            [
-                Node {
-                    id: 1,
-                    left: Left { id: 1, field: 0 },
-                    right: Right { id: 2, field: 1 },
-                },
-                Node {
-                    id: 2,
-                    left: Left { id: 2, field: 1 },
-                    right: Right { id: 2, field: 1 },
-                },
-            ]
-        );
+        assert_eq!(execute::<_, Node>(&db, None).await.unwrap(), &nodes);
 
         // Select with a WHERE clause.
         assert_eq!(
@@ -607,11 +641,49 @@ mod test {
             )
             .await
             .unwrap(),
-            [Node {
-                id: 1,
-                left: Left { id: 1, field: 0 },
-                right: Right { id: 2, field: 1 }
-            }]
+            &nodes[0..1]
+        );
+
+        // Load a relation with many targets.
+        assert_eq!(
+            load_relation::<_, right::fields::Parent>(&db, &right[1], None)
+                .await
+                .unwrap(),
+            &nodes,
+        );
+
+        // Load relation with many targets, but some filtered out.
+        assert_eq!(
+            load_relation::<_, right::fields::Parent>(
+                &db,
+                &right[1],
+                Some(
+                    Node::has()
+                        .id(<Id as gql::Type>::Predicate::Is(gql::Value::Lit(
+                            nodes[0].id
+                        )))
+                        .into()
+                )
+            )
+            .await
+            .unwrap(),
+            &nodes[0..1]
+        );
+
+        // Load relation with only one target.
+        assert_eq!(
+            load_relation::<_, left::fields::Parent>(&db, &left[0], None)
+                .await
+                .unwrap(),
+            &nodes[0..1]
+        );
+
+        // Load empty relation.
+        assert_eq!(
+            load_relation::<_, right::fields::Parent>(&db, &right[0], None)
+                .await
+                .unwrap(),
+            []
         );
     }
 
