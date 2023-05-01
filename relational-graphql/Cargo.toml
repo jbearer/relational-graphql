@@ -8,6 +8,10 @@ authors = ["Jeb Bearer <jeb.bearer@gmail.com>"]
 name = "library"
 required-features = ["examples"]
 
+[[example]]
+name = "star-wars"
+required-features = ["examples"]
+
 [features]
 default = ["postgres"]
 sql = ["convert_case", "futures", "itertools", "rand", "take_mut"]
