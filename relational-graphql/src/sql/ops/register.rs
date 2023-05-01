@@ -1,12 +1,14 @@
 //! Compilation of resource registration from high-level GraphQL types into low-level SQL types.
 
-use super::{column_name, lower_scalar_type, table_name, Error};
+use super::{column_name, join_column_name, join_table_name, lower_scalar_type, table_name, Error};
 use crate::{
+    array,
     graphql::type_system::{self as gql, Type as _},
     sql::db::{
         AlterTable, AlterTableExt, Connection, ConstraintKind, CreateTable, CreateTableExt,
         SchemaColumn, Type,
     },
+    typenum::U2,
 };
 use futures::future::{try_join_all, BoxFuture, FutureExt, TryFutureExt};
 use std::borrow::Cow;
@@ -135,6 +137,46 @@ impl<'a, 'd, C: Connection, T: gql::Resource> gql::RelationVisitor<T>
 
     fn visit_many_to_many<R: gql::ManyToManyRelation<Owner = T>>(&mut self) -> Self::Output {
         register_resource::<C, R::Target>(self.conn, self.dependencies);
+
+        // Create a join table to represent this relation.
+        self.dependencies
+            .register_join_table::<R, _>(|table, dependencies| {
+                // Create a table with just two columns, one for the ID of the target of each
+                // direction of the relation. Each of these columns has a foreign key constraint on
+                // the target table (deferred until we have created that table), and there is a
+                // primary key constraint on the pair.
+                let target_column = join_column_name::<R>();
+                let owner_column = join_column_name::<R::Inverse>();
+                dependencies.defer_constraints(
+                    table.to_string(),
+                    [
+                        (
+                            ConstraintKind::ForeignKey {
+                                table: table_name::<R::Target>(),
+                            },
+                            [target_column.clone()],
+                        ),
+                        (
+                            ConstraintKind::ForeignKey {
+                                table: table_name::<R::Owner>(),
+                            },
+                            [owner_column.clone()],
+                        ),
+                    ],
+                );
+                self.conn
+                    .create_table::<U2>(
+                        table.to_string(),
+                        array![SchemaColumn;
+                            SchemaColumn::new(target_column.clone(), Type::Int4),
+                            SchemaColumn::new(owner_column.clone(), Type::Int4),
+                        ],
+                    )
+                    .constraint(ConstraintKind::PrimaryKey, [target_column, owner_column])
+                    .execute()
+                    .map_err(Error::sql)
+                    .boxed()
+            });
     }
 }
 
@@ -183,6 +225,29 @@ impl<'a> Dependencies<'a> {
         self.tables.insert(table, Some(fut));
     }
 
+    fn register_join_table<R, F>(&mut self, create: F)
+    where
+        R: gql::ManyToManyRelation,
+        F: FnOnce(&str, &mut Self) -> BoxFuture<'a, Result<(), Error>>,
+    {
+        let table = join_table_name::<R>();
+        match self.tables.entry(table.clone()) {
+            Entry::Occupied(_) => {
+                // If this table is already in the list of tables to register, we have nothing more
+                // to do.
+                return;
+            }
+            Entry::Vacant(e) => {
+                // Insert a placeholder here so if this relation references itself recursively, we
+                // won't recursively try to register the same table again.
+                e.insert(None);
+            }
+        }
+
+        let fut = create(&table, self);
+        self.tables.insert(table, Some(fut));
+    }
+
     /// Defer constraints to be added to a table after all the dependency tables are created.
     ///
     /// This is useful if the constraint references a table which might not be created yet.
@@ -220,7 +285,7 @@ mod test {
         self as relational_graphql, // So the derive macros work in the crate itself.
         sql::{db::mock, SqlDataSource},
     };
-    use gql::{BelongsTo, Id, Resource};
+    use gql::{BelongsTo, Id, Many, Resource};
 
     crate::use_backend!(SqlDataSource<mock::Connection>);
 
@@ -313,6 +378,64 @@ mod test {
                 SchemaColumn::new("id", Type::Serial),
                 SchemaColumn::new("name", Type::Text)
             ]
+        );
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Resource)]
+    struct Foo {
+        id: Id,
+        name: String,
+        #[resource(inverse(many_foos))]
+        many_bars: Many<Bar>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Resource)]
+    struct Bar {
+        id: Id,
+        name: String,
+        #[resource(inverse(many_bars))]
+        many_foos: Many<Foo>,
+    }
+
+    #[async_std::test]
+    async fn test_many_to_many() {
+        let db = mock::Connection::create();
+        execute::<_, Foo>(&db).await.unwrap();
+        let schema = db.schema().await;
+
+        // Ensure both resource tables were created.
+        assert_eq!(
+            schema["foos"],
+            [
+                SchemaColumn::new("id", Type::Serial),
+                SchemaColumn::new("name", Type::Text),
+            ]
+        );
+        assert_eq!(
+            schema["bars"],
+            [
+                SchemaColumn::new("id", Type::Serial),
+                SchemaColumn::new("name", Type::Text),
+            ]
+        );
+
+        // Check the join table.
+        assert_eq!(
+            schema["bars_many_foos_join_foos_many_bars"],
+            [
+                SchemaColumn::new("bars_many_foos", Type::Int4),
+                SchemaColumn::new("foos_many_bars", Type::Int4),
+            ]
+        );
+
+        // Registering the other table is a no-op -- the name of the join table is the same
+        // regardless of which direction we are looking at it from.
+        execute::<_, Bar>(&db).await.unwrap();
+        let mut tables = db.schema().await.into_keys().collect::<Vec<_>>();
+        tables.sort();
+        assert_eq!(
+            tables,
+            ["bars", "bars_many_foos_join_foos_many_bars", "foos"]
         );
     }
 }

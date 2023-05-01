@@ -968,7 +968,7 @@ pub mod resource {
     /// A many-to-many relation.
     pub trait ManyToManyRelation: Relation {
         /// The relation on target objects which links them back to this object.
-        type Inverse: Relation<Target = Self::Owner, Owner = Self::Target>;
+        type Inverse: ManyToManyRelation<Inverse = Self, Target = Self::Owner, Owner = Self::Target>;
     }
 
     /// A marker type used in the definition of a resource to declare a [`ManyToManyRelation`].

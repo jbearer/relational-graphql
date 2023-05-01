@@ -2,10 +2,12 @@
 
 use super::{
     super::db::{Column, Connection, JoinClause, Row, Select, SelectColumn, SelectExt},
-    field_column, scalar_to_value, table_name, value_to_scalar, Error,
+    field_column, join_column_name, join_table_name, scalar_to_value, table_name, value_to_scalar,
+    Error,
 };
 use crate::graphql::type_system::{self as gql, ResourcePredicate, ScalarPredicate, Type};
 use std::any::TypeId;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use take_mut::take;
@@ -17,7 +19,18 @@ enum Relation<'a> {
         /// The owner whose targets we want.
         owner: gql::Id,
     },
-    ManyToMany,
+    ManyToMany {
+        /// The join table representing this relation.
+        join_table: Cow<'a, str>,
+        /// The column on the join table that identifies the target objects.
+        target: Column<'a>,
+        /// The column on the target table that matches the `target` column on the join table.
+        target_id: Column<'a>,
+        /// The column on the join table that identifiers the owning objects.
+        owner: Column<'a>,
+        /// The owner whose targets we want.
+        owner_id: gql::Id,
+    },
 }
 
 /// Search for items of resource `T` matching `filter`.
@@ -49,7 +62,20 @@ pub async fn load_relation<C: Connection, R: gql::Relation>(
         }
 
         fn visit_many_to_many<R: gql::ManyToManyRelation<Owner = T>>(&mut self) -> Self::Output {
-            Relation::ManyToMany
+            let join_table = join_table_name::<R>();
+            Relation::ManyToMany {
+                target: Column::qualified(
+                    join_table.clone().into(),
+                    join_column_name::<R>().into(),
+                ),
+                target_id: field_column::<<R::Target as gql::Resource>::Id>(),
+                owner: Column::qualified(
+                    join_table.clone().into(),
+                    join_column_name::<R::Inverse>().into(),
+                ),
+                join_table: join_table.into(),
+                owner_id: *self.0.get::<T::Id>(),
+            }
         }
     }
 
@@ -84,8 +110,17 @@ async fn execute_and_filter<C: Connection, T: gql::Resource>(
             // field that indicates the owner of the target) matches the ID of the owning object.
             query = query.filter(inverse, "=", owner.into());
         }
-        Some(Relation::ManyToMany) => {
-            unimplemented!("many-to-many relations");
+        Some(Relation::ManyToMany {
+            join_table,
+            target,
+            target_id,
+            owner,
+            owner_id,
+        }) => {
+            query =
+                query
+                    .join(join_table, target, "=", target_id)
+                    .filter(owner, "=", owner_id.into());
         }
         None => {}
     }
@@ -368,10 +403,16 @@ mod test {
         self as relational_graphql, // So the derive macros work in the crate itself.
         array,
         init_logging,
-        sql::db::{mock, SchemaColumn, Type, Value},
+        sql::{
+            db::{mock, Insert, SchemaColumn, Type, Value},
+            SqlDataSource,
+        },
+        use_backend,
     };
     use generic_array::typenum::{U2, U3};
-    use gql::{Id, Resource};
+    use gql::{Id, Many, Resource};
+
+    use_backend!(SqlDataSource<mock::Connection>);
 
     /// A simple test resource with scalar fields.
     #[derive(Clone, Debug, PartialEq, Eq, Resource)]
@@ -571,6 +612,145 @@ mod test {
                 left: Left { id: 1, field: 0 },
                 right: Right { id: 2, field: 1 }
             }]
+        );
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Resource)]
+    struct Foo {
+        id: Id,
+        name: String,
+        bars: Many<Bar>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Resource)]
+    struct Bar {
+        id: Id,
+        name: String,
+        foos: Many<Foo>,
+    }
+
+    #[async_std::test]
+    async fn test_many_to_many() {
+        init_logging();
+
+        let foos = [
+            Foo {
+                id: 1,
+                name: "foo1".into(),
+                bars: Default::default(),
+            },
+            Foo {
+                id: 2,
+                name: "foo2".into(),
+                bars: Default::default(),
+            },
+        ];
+        let bars = [
+            Bar {
+                id: 1,
+                name: "bar1".into(),
+                foos: Default::default(),
+            },
+            Bar {
+                id: 2,
+                name: "bar2".into(),
+                foos: Default::default(),
+            },
+        ];
+
+        let db = mock::Connection::create();
+        db.create_table_with_rows::<U2>(
+            "foos",
+            array![SchemaColumn;
+                SchemaColumn::new("id", Type::Serial),
+                SchemaColumn::new("name", Type::Text),
+            ],
+            [
+                array![Value; Value::from(foos[0].name.clone())],
+                array![Value; Value::from(foos[1].name.clone())],
+            ],
+        )
+        .await
+        .unwrap();
+        db.create_table_with_rows::<U2>(
+            "bars",
+            array![SchemaColumn;
+                SchemaColumn::new("id", Type::Serial),
+                SchemaColumn::new("name", Type::Text),
+            ],
+            [
+                array![Value; Value::from(bars[0].name.clone())],
+                array![Value; Value::from(bars[1].name.clone())],
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Create the join table.
+        //
+        // foo1 <-> bar1
+        //      <-> bar2
+        db.create_table::<U2>(
+            "bars_foos_join_foos_bars",
+            array![SchemaColumn;
+                SchemaColumn::new("bars_foos", Type::Int4),
+                SchemaColumn::new("foos_bars", Type::Int4),
+            ],
+        )
+        .await
+        .unwrap();
+        db.insert::<_, U2>(
+            "bars_foos_join_foos_bars",
+            array![&'static str; "bars_foos", "foos_bars"],
+        )
+        .rows([
+            array![Value; Value::from(foos[0].id), Value::from(bars[0].id)],
+            array![Value; Value::from(foos[0].id), Value::from(bars[1].id)],
+        ])
+        .execute()
+        .await
+        .unwrap();
+
+        // Load a relation with many targets.
+        assert_eq!(
+            load_relation::<_, foo::fields::Bars>(&db, &foos[0], None)
+                .await
+                .unwrap(),
+            &bars
+        );
+
+        // Load relation with many targets, but some filtered out.
+        assert_eq!(
+            load_relation::<_, foo::fields::Bars>(
+                &db,
+                &foos[0],
+                Some(
+                    Bar::has()
+                        .name(gql::StringPredicate::Is(gql::Value::Lit(
+                            bars[0].name.clone()
+                        )))
+                        .into()
+                )
+            )
+            .await
+            .unwrap(),
+            &bars[0..1]
+        );
+
+        // Load relation with only one target.
+        assert_eq!(
+            load_relation::<_, bar::fields::Foos>(&db, &bars[0], None)
+                .await
+                .unwrap(),
+            &foos[0..1]
+        );
+
+        // Load empty relation.
+        assert_eq!(
+            load_relation::<_, foo::fields::Bars>(&db, &foos[1], None)
+                .await
+                .unwrap(),
+            []
         );
     }
 }

@@ -5,6 +5,7 @@ use crate::graphql::type_system as gql;
 use convert_case::{Case, Casing};
 use is_type::Is;
 use snafu::Snafu;
+use std::cmp::{max, min};
 use std::fmt::Display;
 
 pub mod insert;
@@ -84,6 +85,38 @@ fn column_name<F: gql::Field>() -> String {
 /// The name of the column corresponding to the field with name `field_name`.
 fn column_name_of_field(field_name: &'static str) -> String {
     to_snake_case(field_name)
+}
+
+/// The name of the join table corresponding to the many-to-many relation `R`.
+fn join_table_name<R: gql::ManyToManyRelation>() -> String {
+    // Compute a mangled join table name which depends on
+    // * The name of the owner resource
+    // * The relation column within the owner resource
+    // * The name of the target resource
+    // * The relation column within the target resource
+    let owner = join_column_name::<R>();
+    let target = join_column_name::<R::Inverse>();
+
+    // We break this name into two parts -- the owner and the target -- and then order these parts
+    // alphabetically, so that the join table name is the same as when we compute it from the
+    // inverse of the relation.
+    let part1 = min(&owner, &target);
+    let part2 = max(&owner, &target);
+
+    format!("{}_join_{}", part1, part2)
+}
+
+/// The name of the column in the join table representing the many-to-many relation `R`.
+///
+/// This column contains foreign keys for the resource `R::Target`. The target rows are linked to
+/// rows in `R`'s own table via a second column on the table, the inverse of this one, whose name is
+/// `join_column_name::<R::Inverse>()`.
+fn join_column_name<R: gql::ManyToManyRelation>() -> String {
+    // To create a unique name, combine the relation name and the owner name. This is slightly more
+    // complicated than [`field_column`] because there, all the columns in the table come from
+    // fields of one resource, and are thus already required to be unique, but here, we are
+    // combining two columns from two different resources, that could have the same name.
+    format!("{}_{}", table_name::<R::Owner>(), to_snake_case(R::NAME))
 }
 
 /// Convert a string to snake case.
