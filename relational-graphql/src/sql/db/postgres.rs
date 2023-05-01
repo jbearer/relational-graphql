@@ -202,11 +202,9 @@ impl<'a> super::Select<'a> for Select<'a> {
         match clause {
             Clause::Where(WhereClause { column, op, param }) => {
                 query.params.push(param);
-                query.filters.push(format!(
-                    "WHERE {} {op} ${}",
-                    column.escape(),
-                    query.params.len()
-                ));
+                query
+                    .filters
+                    .push(format!("{} {op} ${}", column.escape(), query.params.len()));
             }
             Clause::Join(JoinClause {
                 table,
@@ -245,11 +243,18 @@ impl<'a> super::Select<'a> for Select<'a> {
                 .join(", ");
             let table = escape_ident(query.table);
 
+            // Format the `WHERE` clause.
+            let where_clause = if query.filters.is_empty() {
+                "".into()
+            } else {
+                format!(" WHERE {}", query.filters.join(" AND "))
+            };
+
             // Construct the SQL statement.
             let statement = format!(
-                "SELECT {columns} FROM {table} {} {}",
+                "SELECT {columns} FROM {table} {}{}",
                 query.joins.join(" "),
-                query.filters.join(" ")
+                where_clause
             );
 
             // Run the query.
@@ -302,6 +307,12 @@ impl<'a, N: Length> super::Insert<N> for Insert<'a, N> {
     }
 
     async fn execute(self) -> Result<(), Error> {
+        // An `INSERT INTO` statement with no values is invalid SQL, but if it had an
+        // interpretation, the only reasonable one would be to do nothing.
+        if self.num_rows == 0 {
+            return Ok(());
+        }
+
         let columns = self.columns.iter().map(escape_ident).join(",");
         let rows = (0..self.num_rows)
             .map(|i| {
@@ -445,7 +456,7 @@ impl<'a> super::AlterTable for AlterTable<'a> {
             .constraints
             .into_iter()
             .map(|(kind, cols)| format!("ADD {}", format_constraint(&self.table, kind, &cols)))
-            .join("");
+            .join(",");
         self.conn
             .query(format!("ALTER TABLE {table} {constraints}").as_str(), [])
             .await?;

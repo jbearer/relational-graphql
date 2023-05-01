@@ -8,6 +8,7 @@ use crate::graphql::{
 };
 use async_trait::async_trait;
 use derive_more::From;
+use std::cmp::min;
 use std::fmt::Debug;
 
 #[cfg(feature = "postgres")]
@@ -125,14 +126,14 @@ impl<T: Type, C, E: ObjectType> gql::Connection<C> for SqlConnection<T, C, E> {
 impl<T: Type, C, E: Clone + ObjectType> SqlConnection<T, C, E> {
     /// Load a page from a paginated connection.
     pub fn load(&self, page: PageRequest<usize>) -> Vec<Edge<usize, T, E>> {
-        let after = page.after.unwrap_or(0);
-        let before = page.before.unwrap_or(self.edges.len());
+        let after = min(page.after.unwrap_or(0), self.edges.len());
+        let before = min(page.before.unwrap_or(self.edges.len()), self.edges.len());
         let edges = &self.edges[after..before];
 
-        let first = page.first.unwrap_or(edges.len());
+        let first = min(page.first.unwrap_or(edges.len()), edges.len());
         let edges = &edges[..first];
 
-        let last = edges.len() - page.last.unwrap_or(edges.len());
+        let last = min(edges.len() - page.last.unwrap_or(edges.len()), edges.len());
         let edges = &edges[last..];
 
         let offset = after + last;

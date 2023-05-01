@@ -6,7 +6,7 @@ use super::{
 };
 use crate::graphql::type_system::{self as gql, ResourcePredicate, ScalarPredicate, Type};
 use std::any::TypeId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use take_mut::take;
 
@@ -90,7 +90,7 @@ async fn execute_and_filter<C: Connection, T: gql::Resource>(
         None => {}
     }
 
-    query = query.clauses(std::mem::take(&mut columns.joins).into_values());
+    query = query.clauses(std::mem::take(&mut columns.joins));
     let rows = query.many().await.map_err(Error::sql)?;
     rows.iter().map(|row| columns.parse_row(row)).collect()
 }
@@ -100,7 +100,8 @@ async fn execute_and_filter<C: Connection, T: gql::Resource>(
 struct ColumnMap {
     index: HashMap<TypeId, usize>,
     columns: Vec<SelectColumn<'static>>,
-    joins: HashMap<TypeId, JoinClause<'static>>,
+    joins: Vec<JoinClause<'static>>,
+    joined_fields: HashSet<TypeId>,
 }
 
 impl ColumnMap {
@@ -175,17 +176,16 @@ impl ColumnMap {
     where
         F::Type: gql::Resource,
     {
-        // We join on the column referencing this resource in the original table (`F`) being equal
-        // to the primary key (`Id`) of this resource's table.
-        self.joins.insert(
-            TypeId::of::<F>(),
-            JoinClause {
+        if self.joined_fields.insert(TypeId::of::<F>()) {
+            // We join on the column referencing this resource in the original table (`F`) being
+            // equal to the primary key (`Id`) of this resource's table.
+            self.joins.push(JoinClause {
                 table: table_name::<F::Type>().into(),
                 lhs: field_column::<F>(),
                 op: "=".into(),
                 rhs: field_column::<<F::Type as gql::Resource>::Id>(),
-            },
-        );
+            });
+        }
     }
 
     /// Convert a row of query results into a resource object.
