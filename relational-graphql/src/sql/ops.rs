@@ -9,6 +9,7 @@ use std::cmp::{max, min};
 use std::fmt::Display;
 
 pub mod insert;
+pub mod populate_relation;
 pub mod register;
 pub mod select;
 

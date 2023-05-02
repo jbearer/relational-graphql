@@ -11,7 +11,7 @@
 
 use super::{
     connection::{self, CursorType},
-    type_system::{Relation, Resource, Type},
+    type_system::{Id, Relation, Resource, Type},
     EmptyFields, ObjectType, OutputType,
 };
 use async_trait::async_trait;
@@ -97,6 +97,11 @@ pub trait DataSource {
     type Error: Error;
 
     /// Load the targets of a [`Relation`].
+    ///
+    /// # Errors
+    ///
+    /// Fails if `owner` does not exist in the data source or if either of the resources related by
+    /// `R` have not been registered with [`register`](Self::register).
     async fn load_relation<R: Relation>(
         &self,
         owner: &R::Owner,
@@ -114,15 +119,41 @@ pub trait DataSource {
     async fn register<T: Resource>(&mut self) -> Result<(), Self::Error>;
 
     /// Get a paginated stream of items matching `filter`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if `T` has not been registered with [`register`](Self::register).
     async fn query<T: Resource>(
         &self,
         filter: Option<T::ResourcePredicate>,
     ) -> Result<Paginated<Self, T>, Self::Error>;
 
     /// Insert new items into the database.
+    ///
+    /// # Errors
+    ///
+    /// Fails if any of the objects in `inputs` conflict with objects already in the data source
+    /// (for example, via a duplicate value of a unique field), or if `T` has not been registered
+    /// with [`register`](Self::register).
     async fn insert<T: Resource, I>(&mut self, inputs: I) -> Result<(), Self::Error>
     where
         I: IntoIterator<Item = T::ResourceInput> + Send,
+        I::IntoIter: Send;
+
+    /// Insert new pairs into a relation `R`.
+    ///
+    ///
+    /// This method relates the objects `(owner, target)` by `R`, for each `(owner, target)` pair in
+    /// `pairs`. `owner` here is the [`Id`](Resource::Id) of an object in `R::Owner`, and `target`
+    /// is the [`Id`](Resource::Id) of an object in `R::Target`.
+    ///
+    /// # Errors
+    ///
+    /// Fails if any of the IDs in `pairs` do not already exist in the data source, or if either of
+    /// the resources related by `R` have not been registered with [`register`](Self::register).
+    async fn populate_relation<R: Relation, I>(&mut self, pairs: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = (Id, Id)> + Send,
         I::IntoIter: Send;
 }
 

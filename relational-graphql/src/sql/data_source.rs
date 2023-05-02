@@ -3,7 +3,7 @@
 use super::{db, ops};
 use crate::graphql::{
     backend::{self as gql, Edge, PageRequest, Paginated},
-    type_system::{Relation, Resource, Type},
+    type_system::{Id, Relation, Resource, Type},
     EmptyFields, ObjectType,
 };
 use async_trait::async_trait;
@@ -71,6 +71,14 @@ impl<Db: 'static + db::Connection + Send + Sync> gql::DataSource for SqlDataSour
         I::IntoIter: Send,
     {
         ops::insert::execute::<Db, T>(&self.0, inputs).await
+    }
+
+    async fn populate_relation<R: Relation, I>(&mut self, pairs: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = (Id, Id)> + Send,
+        I::IntoIter: Send,
+    {
+        ops::populate_relation::execute::<Db, R>(&self.0, pairs).await
     }
 }
 

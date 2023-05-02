@@ -183,6 +183,25 @@ pub async fn create_db(opt: Options) -> GraphQLBackend {
     .await
     .unwrap();
 
+    // Link films to characters.
+    let characters_by_film = [
+        vec![1, 3, 4, 5, 6, 7, 8],
+        vec![1, 3, 4, 7, 8],
+        vec![1, 2, 3, 4, 7, 8],
+    ];
+    db.populate_relation::<episode::fields::Characters, _>(
+        characters_by_film
+            .into_iter()
+            .enumerate()
+            .flat_map(|(film, characters)| {
+                characters
+                    .into_iter()
+                    .map(move |character| (film as Id + 1, character))
+            }),
+    )
+    .await
+    .unwrap();
+
     db
 }
 
@@ -298,7 +317,6 @@ mod test {
         );
     }
 
-    #[ignore] // We have not implemented the interface required to populate the many-to-many relations.
     #[async_std::test]
     async fn test_many_to_many_query() {
         init_logging();
@@ -352,26 +370,56 @@ mod test {
                                         {
                                             "node": {
                                                 "name": "Luke Skywalker",
+                                                "droid": { "edges": [] },
+                                                "human": {
+                                                    "edges": [
+                                                        {"node": {"homePlanet": "Tatooine"}}
+                                                    ]
+                                                },
                                             },
                                         },
                                         {
                                             "node": {
                                                 "name": "Han Solo",
+                                                "droid": { "edges": [] },
+                                                "human": {
+                                                    "edges": [
+                                                        {"node": {"homePlanet": "Corellia"}}
+                                                    ]
+                                                },
                                             },
                                         },
                                         {
                                             "node": {
                                                 "name": "Leia Organa",
+                                                "droid": { "edges": [] },
+                                                "human": {
+                                                    "edges": [
+                                                        {"node": {"homePlanet": "Alderaan"}}
+                                                    ]
+                                                },
                                             },
                                         },
                                         {
                                             "node": {
                                                 "name": "C-3PO",
+                                                "human": { "edges": [] },
+                                                "droid": {
+                                                    "edges": [
+                                                        {"node": {"primaryFunction": "Protocol"}}
+                                                    ]
+                                                },
                                             },
                                         },
                                         {
                                             "node": {
                                                 "name": "R2-D2",
+                                                "human": { "edges": [] },
+                                                "droid": {
+                                                    "edges": [
+                                                        {"node": {"primaryFunction": "Astromech"}}
+                                                    ]
+                                                },
                                             },
                                         },
                                     ]
@@ -386,31 +434,67 @@ mod test {
                                         {
                                             "node": {
                                                 "name": "Luke Skywalker",
+                                                "droid": { "edges": [] },
+                                                "human": {
+                                                    "edges": [
+                                                        {"node": {"homePlanet": "Tatooine"}}
+                                                    ]
+                                                },
                                             },
                                         },
                                         {
                                             "node": {
                                                 "name": "Anakin Skywalker",
+                                                "droid": { "edges": [] },
+                                                "human": {
+                                                    "edges": [
+                                                        {"node": {"homePlanet": "Tatooine"}}
+                                                    ]
+                                                },
                                             },
                                         },
                                         {
                                             "node": {
                                                 "name": "Han Solo",
+                                                "droid": { "edges": [] },
+                                                "human": {
+                                                    "edges": [
+                                                        {"node": {"homePlanet": "Corellia"}}
+                                                    ]
+                                                },
                                             },
                                         },
                                         {
                                             "node": {
                                                 "name": "Leia Organa",
+                                                "droid": { "edges": [] },
+                                                "human": {
+                                                    "edges": [
+                                                        {"node": {"homePlanet": "Alderaan"}}
+                                                    ]
+                                                },
                                             },
                                         },
                                         {
                                             "node": {
                                                 "name": "C-3PO",
+                                                "human": { "edges": [] },
+                                                "droid": {
+                                                    "edges": [
+                                                        {"node": {"primaryFunction": "Protocol"}}
+                                                    ]
+                                                },
                                             },
                                         },
                                         {
                                             "node": {
                                                 "name": "R2-D2",
+                                                "human": { "edges": [] },
+                                                "droid": {
+                                                    "edges": [
+                                                        {"node": {"primaryFunction": "Astromech"}}
+                                                    ]
+                                                },
                                             },
                                         },
                                     ]
