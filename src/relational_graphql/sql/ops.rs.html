@@ -281,8 +281,6 @@
 <a href="#281" id="281">281</a>
 <a href="#282" id="282">282</a>
 <a href="#283" id="283">283</a>
-<a href="#284" id="284">284</a>
-<a href="#285" id="285">285</a>
 </pre><pre class="rust"><code><span class="doccomment">//! Compilation of high-level GraphQL operations into low-level SQL operations.
 
 </span><span class="kw">use </span><span class="kw">super</span>::db::{Column, Type, Value};
@@ -294,6 +292,7 @@
 <span class="kw">use </span>std::fmt::Display;
 
 <span class="kw">pub mod </span>insert;
+<span class="kw">pub mod </span>populate_relation;
 <span class="kw">pub mod </span>register;
 <span class="kw">pub mod </span>select;
 
@@ -356,10 +355,7 @@
 
 <span class="doccomment">/// The column corresponding to the field `F`.
 </span><span class="kw">fn </span>field_column&lt;F: gql::Field&gt;() -&gt; Column&lt;<span class="lifetime">&#39;static</span>&gt; {
-    Column::qualified(
-        table_name::&lt;F::Resource&gt;().into(),
-        column_name::&lt;F&gt;().into(),
-    )
+    Column::qualified(table_name::&lt;F::Resource&gt;(), column_name::&lt;F&gt;())
 }
 
 <span class="doccomment">/// The name of the column corresponding to the field `F`.

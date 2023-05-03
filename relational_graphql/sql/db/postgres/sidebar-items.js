@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"enum":["Error"],"struct":["AlterTable","Config","Connection","CreateTable","Insert","Row","Select"]};
+window.SIDEBAR_ITEMS = {"enum":["Error"],"struct":["AlterTable","Config","Connection","CreateTable","Insert","Row","Select","Update"]};

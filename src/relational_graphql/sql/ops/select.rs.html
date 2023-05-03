@@ -820,12 +820,6 @@
 <a href="#820" id="820">820</a>
 <a href="#821" id="821">821</a>
 <a href="#822" id="822">822</a>
-<a href="#823" id="823">823</a>
-<a href="#824" id="824">824</a>
-<a href="#825" id="825">825</a>
-<a href="#826" id="826">826</a>
-<a href="#827" id="827">827</a>
-<a href="#828" id="828">828</a>
 </pre><pre class="rust"><code><span class="doccomment">//! Compilation of select from high-level GraphQL types into low-level SQL types.
 
 </span><span class="kw">use super</span>::{
@@ -892,15 +886,9 @@
         <span class="kw">fn </span>visit_many_to_many&lt;R: gql::ManyToManyRelation&lt;Owner = T&gt;&gt;(<span class="kw-2">&amp;mut </span><span class="self">self</span>) -&gt; <span class="self">Self</span>::Output {
             <span class="kw">let </span>join_table = join_table_name::&lt;R&gt;();
             Relation::ManyToMany {
-                target: Column::qualified(
-                    join_table.clone().into(),
-                    join_column_name::&lt;R&gt;().into(),
-                ),
+                target: Column::qualified(join_table.clone(), join_column_name::&lt;R&gt;()),
                 target_id: field_column::&lt;&lt;R::Target <span class="kw">as </span>gql::Resource&gt;::Id&gt;(),
-                owner: Column::qualified(
-                    join_table.clone().into(),
-                    join_column_name::&lt;R::Inverse&gt;().into(),
-                ),
+                owner: Column::qualified(join_table.clone(), join_column_name::&lt;R::Inverse&gt;()),
                 join_table: join_table.into(),
                 owner_id: <span class="kw-2">*</span><span class="self">self</span>.<span class="number">0</span>.get::&lt;T::Id&gt;(),
             }
