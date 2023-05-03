@@ -64,15 +64,9 @@ pub async fn load_relation<C: Connection, R: gql::Relation>(
         fn visit_many_to_many<R: gql::ManyToManyRelation<Owner = T>>(&mut self) -> Self::Output {
             let join_table = join_table_name::<R>();
             Relation::ManyToMany {
-                target: Column::qualified(
-                    join_table.clone().into(),
-                    join_column_name::<R>().into(),
-                ),
+                target: Column::qualified(join_table.clone(), join_column_name::<R>()),
                 target_id: field_column::<<R::Target as gql::Resource>::Id>(),
-                owner: Column::qualified(
-                    join_table.clone().into(),
-                    join_column_name::<R::Inverse>().into(),
-                ),
+                owner: Column::qualified(join_table.clone(), join_column_name::<R::Inverse>()),
                 join_table: join_table.into(),
                 owner_id: *self.0.get::<T::Id>(),
             }

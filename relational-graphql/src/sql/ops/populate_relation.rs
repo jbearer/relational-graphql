@@ -1,10 +1,13 @@
 //! Compilation of relation population from high-level GraphQL types into low-level SQL types.
 
-use super::{join_column_name, join_table_name, scalar_to_value, Error};
+use super::{
+    column_name, field_column, join_column_name, join_table_name, scalar_to_value, table_name,
+    Error,
+};
 use crate::{
     array,
     graphql::type_system as gql,
-    sql::db::{Connection, Insert, Value},
+    sql::db::{Column, Connection, FromItem, Insert, Update, Value},
     typenum::U2,
     Array,
 };
@@ -30,7 +33,25 @@ pub async fn execute<C: Connection, R: gql::Relation>(
             //      UPDATE {R::Target} SET {R::Inverse} = pairs.owner
             //          WHERE {R::Target::Id} = pairs.target
             //          FROM (VALUES {pairs}) AS pairs (owner, target)
-            todo!()
+            self.conn
+                .update(table_name::<R::Target>())
+                .set(
+                    column_name::<R::Inverse>(),
+                    Column::qualified("pairs", "owner"),
+                )
+                .filter(
+                    field_column::<<R::Target as gql::Resource>::Id>(),
+                    "=",
+                    Column::qualified("pairs", "target"),
+                )
+                .from(FromItem::alias(
+                    "pairs",
+                    ["owner", "target"],
+                    FromItem::values(std::mem::take(&mut self.pairs)),
+                ))
+                .execute()
+                .map_err(Error::sql)
+                .boxed()
         }
 
         fn visit_many_to_many<R: gql::ManyToManyRelation<Owner = T>>(&mut self) -> Self::Output {
@@ -66,9 +87,130 @@ mod test {
         init_logging,
         sql::{db::mock, ops, SqlDataSource},
     };
-    use gql::{Id, Many, Resource};
+    use gql::{BelongsTo, Id, Many, Resource};
 
     crate::use_backend!(SqlDataSource<mock::Connection>);
+
+    #[derive(Clone, Debug, PartialEq, Eq, Resource)]
+    struct Owner {
+        id: Id,
+        field: u32,
+        targets: BelongsTo<Target>,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, Resource)]
+    struct Target {
+        id: Id,
+        field: String,
+        owner: Owner,
+    }
+
+    #[async_std::test]
+    async fn test_many_to_one() {
+        init_logging();
+
+        let owners = [
+            Owner {
+                id: 1,
+                field: 0,
+                targets: Default::default(),
+            },
+            Owner {
+                id: 2,
+                field: 1,
+                targets: Default::default(),
+            },
+        ];
+        let targets = [
+            Target {
+                id: 1,
+                field: "0".into(),
+                owner: owners[0].clone(),
+            },
+            Target {
+                id: 2,
+                field: "1".into(),
+                owner: owners[1].clone(),
+            },
+        ];
+
+        // Create and populate a database.
+        let db = mock::Connection::create();
+        ops::register::execute::<_, Owner>(&db).await.unwrap();
+        ops::insert::execute::<_, Owner>(
+            &db,
+            [
+                owner::OwnerInput {
+                    field: owners[0].field,
+                },
+                owner::OwnerInput {
+                    field: owners[1].field,
+                },
+            ],
+        )
+        .await
+        .unwrap();
+        ops::insert::execute::<_, Target>(
+            &db,
+            [
+                target::TargetInput {
+                    field: targets[0].field.clone(),
+                    owner: targets[0].id,
+                },
+                target::TargetInput {
+                    field: targets[1].field.clone(),
+                    owner: targets[1].id,
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Since each target specifies an owner, the relation is immediately populated.
+        assert_eq!(
+            ops::select::load_relation::<_, owner::fields::Targets>(&db, &owners[0], None)
+                .await
+                .unwrap(),
+            &targets[0..1]
+        );
+        assert_eq!(
+            ops::select::load_relation::<_, owner::fields::Targets>(&db, &owners[1], None)
+                .await
+                .unwrap(),
+            &targets[1..]
+        );
+
+        // We can change the relation by specifying a new owner for one of the targets.
+        ops::populate_relation::execute::<_, owner::fields::Targets>(
+            &db,
+            [(owners[0].id, targets[1].id)],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            ops::select::load_relation::<_, owner::fields::Targets>(&db, &owners[0], None)
+                .await
+                .unwrap(),
+            [
+                Target {
+                    id: 1,
+                    field: "0".into(),
+                    owner: owners[0].clone(),
+                },
+                Target {
+                    id: 2,
+                    field: "1".into(),
+                    owner: owners[0].clone(),
+                },
+            ]
+        );
+        assert_eq!(
+            ops::select::load_relation::<_, owner::fields::Targets>(&db, &owners[1], None)
+                .await
+                .unwrap(),
+            []
+        );
+    }
 
     #[derive(Clone, Debug, PartialEq, Eq, Resource)]
     struct ManyToManyA {

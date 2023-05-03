@@ -5,8 +5,8 @@
 #![cfg(any(test, feature = "mocks"))]
 
 use super::{
-    Clause, Column, ConstraintKind, Error as _, JoinClause, SchemaColumn, SelectColumn, Type,
-    Value, WhereClause,
+    Clause, Column, ConstraintKind, Error as _, FromItem, JoinClause, SchemaColumn, SelectColumn,
+    Type, Value, WhereClause,
 };
 use crate::{
     typenum::{Sub1, B1},
@@ -181,6 +181,7 @@ impl super::Connection for Connection {
     type AlterTable<'a> = AlterTable;
     type Select<'a> = Select<'a>;
     type Insert<'a, N: Length> = Insert<'a, N>;
+    type Update<'a> = Update<'a>;
 
     async fn create_db(&mut self, _name: &str) -> Result<(), Self::Error> {
         Err(Self::Error::custom(
@@ -237,6 +238,16 @@ impl super::Connection for Connection {
             table: table.into(),
             columns: columns.map(|c| c.into()),
             rows: vec![],
+        }
+    }
+
+    fn update<'a>(&'a self, table: impl Into<Cow<'a, str>> + Send) -> Self::Update<'a> {
+        Update {
+            db: &self.0,
+            table: table.into(),
+            columns: Default::default(),
+            filters: Default::default(),
+            from: Default::default(),
         }
     }
 }
@@ -350,6 +361,12 @@ impl<'a, N: Length> super::Insert<N> for Insert<'a, N> {
             .tables
             .get_mut(&*self.table)
             .ok_or_else(|| Error::from(format!("no such table {}", self.table)))?;
+        tracing::info!(
+            "INSERT INTO {} ({:?}) VALUES {:?}",
+            self.table,
+            self.columns,
+            self.rows
+        );
 
         // A permutation of column indices mapping positions in the input rows to the positions of
         // the corresponding rows in the table schema.
@@ -368,6 +385,114 @@ impl<'a, N: Length> super::Insert<N> for Insert<'a, N> {
         }
 
         table.append(self.rows)
+    }
+}
+
+/// An update statement for an in-memory databse.
+pub struct Update<'a> {
+    db: &'a RwLock<Db>,
+    table: Cow<'a, str>,
+    columns: Vec<(Cow<'a, str>, Column<'a>)>,
+    filters: Vec<(Column<'a>, Cow<'a, str>, Column<'a>)>,
+    from: Vec<FromItem<'a>>,
+}
+
+#[async_trait]
+impl<'a> super::Update<'a> for Update<'a> {
+    type Error = Error;
+
+    fn set(mut self, set: impl Into<Cow<'a, str>>, to: Column<'a>) -> Self {
+        self.columns.push((set.into(), to));
+        self
+    }
+
+    fn filter(mut self, lhs: Column<'a>, op: impl Into<Cow<'a, str>>, rhs: Column<'a>) -> Self {
+        self.filters.push((lhs, op.into(), rhs));
+        self
+    }
+
+    fn from(mut self, item: FromItem<'a>) -> Self {
+        self.from.push(item);
+        self
+    }
+
+    async fn execute(self) -> Result<(), Self::Error> {
+        tracing::info!(
+            "UPDATE {} SET ({:?}) WHERE {:?} FROM {:?}",
+            self.table,
+            self.columns,
+            self.filters,
+            self.from
+        );
+
+        let mut db = self.db.write().await;
+        let table = db
+            .tables
+            .get_mut(&*self.table)
+            .ok_or_else(|| Error::from(format!("no such table {}", self.table)))?;
+        let schema = table
+            .schema()
+            .map(|col| Column::qualified(self.table.clone(), col.name()))
+            .collect::<Vec<_>>();
+
+        // Compute the cartesian product of all the `FROM` items -- that is, one big table
+        // containing all combinations of rows from the `FROM` list. This is like joining all the
+        // `FROM` items together on the condition `true`.
+        let (schemas, views): (Vec<_>, Vec<_>) = self.from.into_iter().map(Row::view).unzip();
+        let from_schema = schemas.into_iter().flatten().collect::<Vec<_>>();
+        let from_table = views
+            .into_iter()
+            .multi_cartesian_product()
+            .map(|rows| Row {
+                columns: rows.into_iter().flat_map(|row| row.columns).collect(),
+            })
+            .collect::<Vec<_>>();
+        assert!(from_table
+            .iter()
+            .all(|row| row.columns.len() == from_schema.len()));
+
+        // Go through each row in the table to update and check if there are any combinations rows
+        // in the `FROM` list for which the `WHERE` clause is satisfied on those rows and the row to
+        // be updated.
+        for row in &mut table.rows {
+            let mut satisfying_row = None;
+            'from_rows: for from_row in &from_table {
+                for (lhs, op, rhs) in &self.filters {
+                    // Both sides of the filter must exist in either this table or the `FROM` table.
+                    let lhs = row
+                        .get(&schema, lhs)
+                        .or_else(|_| from_row.get(&from_schema, lhs))?;
+                    let rhs = row
+                        .get(&schema, rhs)
+                        .or_else(|_| from_row.get(&from_schema, rhs))?;
+                    if !Row::cmp(lhs, op, rhs) {
+                        continue 'from_rows;
+                    }
+                }
+                satisfying_row = Some(from_row);
+            }
+
+            let Some(satisfying_row) = satisfying_row else {
+                continue;
+            };
+            tracing::info!("matched row {row:?} with {satisfying_row:?}");
+
+            // Set the value of each column from `self.columns` in this row.
+            for (column, value) in &self.columns {
+                tracing::info!("SET {column} = {value}");
+                let index = schema
+                    .iter()
+                    .position(|col| col.name == *column)
+                    .ok_or_else(|| Error::from(format!("no such column {column} to update")))?;
+                // The value comes from this table, if it exists, or else from the `FROM` table.
+                let value = row
+                    .get(&schema, value)
+                    .or_else(|_| satisfying_row.get(&from_schema, value))?;
+                row.columns[index] = value.clone();
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -392,6 +517,7 @@ impl<'a, N: Length> super::CreateTable for CreateTable<'a, N> {
     }
 
     async fn execute(self) -> Result<(), Self::Error> {
+        tracing::info!("CREATE TABLE {} ({:?})", self.table, self.columns);
         self.db
             .create_table(self.table, self.columns.map(|col| col.into_static()))
             .await
@@ -449,6 +575,31 @@ impl Row {
     /// Create a row with the given entries.
     fn new(columns: Vec<Value>) -> Self {
         Self { columns }
+    }
+
+    /// Create a schema and set of rows corresponding to a temporary view or virtual table.
+    fn view(item: FromItem) -> (Vec<Column>, Vec<Self>) {
+        match item {
+            FromItem::Alias {
+                table,
+                columns,
+                item,
+            } => {
+                let rows = Row::view(*item).1;
+                let schema = columns
+                    .into_iter()
+                    .map(|column| Column::qualified(table.clone(), column))
+                    .collect();
+                (schema, rows)
+            }
+            FromItem::Values { rows } => {
+                let schema = (0..rows[0].len())
+                    .map(|i| Column::named(i.to_string()))
+                    .collect();
+                let rows = rows.into_iter().map(Row::new).collect();
+                (schema, rows)
+            }
+        }
     }
 
     /// Test if this row should be included based on the given condition..

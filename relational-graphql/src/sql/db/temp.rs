@@ -52,6 +52,10 @@ impl<Db: Connection + Send + Sync> Connection for TempDatabase<Db> {
     where
         Self: 'a;
 
+    type Update<'a> = Db::Update<'a>
+    where
+        Self: 'a;
+
     async fn create_db(&mut self, _name: &str) -> Result<(), Self::Error> {
         Err(Self::Error::custom(
             "TempDatabase does not support creating more databases",
@@ -94,5 +98,9 @@ impl<Db: Connection + Send + Sync> Connection for TempDatabase<Db> {
         N: Length,
     {
         self.db.insert(table, columns)
+    }
+
+    fn update<'a>(&'a self, table: impl Into<Cow<'a, str>> + Send) -> Self::Update<'a> {
+        self.db.update(table)
     }
 }

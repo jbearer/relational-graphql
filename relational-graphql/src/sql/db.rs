@@ -106,6 +106,11 @@ pub trait Connection {
     where
         Self: 'a;
 
+    /// An `UPDATE` statement which can be executed against the database.
+    type Update<'a>: Update<'a, Error = Self::Error>
+    where
+        Self: 'a;
+
     /// Create a new database and connect to it.
     async fn create_db(&mut self, name: &str) -> Result<(), Self::Error>;
 
@@ -153,6 +158,12 @@ pub trait Connection {
     where
         C: Into<String>,
         N: Length;
+
+    /// Start an `UPDATE` statement.
+    ///
+    /// `table indicates the table to update. You can set the values of columns and refine the
+    /// statement with a `WHERE` clause and such using the methods on the [`Update`] object.
+    fn update<'a>(&'a self, table: impl Into<Cow<'a, str>> + Send) -> Self::Update<'a>;
 }
 
 /// A SQL primitive data type.
@@ -270,15 +281,18 @@ pub struct Column<'a> {
 
 impl<'a> Column<'a> {
     /// A named column.
-    pub fn named(name: Cow<'a, str>) -> Self {
-        Self { name, table: None }
+    pub fn named(name: impl Into<Cow<'a, str>>) -> Self {
+        Self {
+            name: name.into(),
+            table: None,
+        }
     }
 
     /// A named column, qualified by a table name.
-    pub fn qualified(table: Cow<'a, str>, name: Cow<'a, str>) -> Self {
+    pub fn qualified(table: impl Into<Cow<'a, str>>, name: impl Into<Cow<'a, str>>) -> Self {
         Self {
-            table: Some(table),
-            name,
+            table: Some(table.into()),
+            name: name.into(),
         }
     }
 
@@ -308,13 +322,13 @@ impl<'a> From<Cow<'a, str>> for Column<'a> {
 
 impl<'a> From<&'a str> for Column<'a> {
     fn from(name: &'a str) -> Self {
-        Self::named(name.into())
+        Self::named(name)
     }
 }
 
 impl<'a> From<String> for Column<'a> {
     fn from(name: String) -> Self {
-        Self::named(name.into())
+        Self::named(name)
     }
 }
 
@@ -597,6 +611,82 @@ pub trait Insert<N: Length>: Send {
     ///
     /// This method will fail if any of the items in `rows` conflict with an existing row in `table`
     /// at a column which is defined as a unique or primary key.
+    async fn execute(self) -> Result<(), Self::Error>;
+}
+
+/// A table or view which can be referenced in the `FROM` clause of another query.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FromItem<'a> {
+    /// A reference to a table or view, renaming the table and its columns for the purposes of this
+    /// query.
+    Alias {
+        table: Cow<'a, str>,
+        columns: Vec<Cow<'a, str>>,
+        item: Box<FromItem<'a>>,
+    },
+    /// A `VALUES` expression, listing rows of literal values to treat as a temporary table.
+    Values { rows: Vec<Vec<Value>> },
+}
+
+impl<'a> FromItem<'a> {
+    /// A reference to a table or view, renaming the table and its columns for the purposes of this
+    /// query.
+    pub fn alias<C>(table: impl Into<Cow<'a, str>>, columns: C, item: FromItem<'a>) -> Self
+    where
+        C: IntoIterator,
+        C::Item: Into<Cow<'a, str>>,
+    {
+        Self::Alias {
+            table: table.into(),
+            columns: columns.into_iter().map(|c| c.into()).collect(),
+            item: Box::new(item),
+        }
+    }
+
+    /// A `VALUES` expression, listing rows of literal values to treat as a temporary table.
+    pub fn values<I>(rows: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: IntoIterator<Item = Value>,
+    {
+        Self::Values {
+            rows: rows
+                .into_iter()
+                .map(|row| row.into_iter().collect())
+                .collect(),
+        }
+    }
+}
+
+/// An `UPDATE` statement which can be executed against the database.
+#[async_trait]
+pub trait Update<'a>: Send {
+    /// Errors returned by this statement.
+    type Error: Error;
+
+    /// Set the value of a column in this table to the value of another column mentioned in the
+    /// statement.
+    fn set(self, set: impl Into<Cow<'a, str>>, to: Column<'a>) -> Self;
+
+    /// Add a `WHERE` clause to the statement.
+    ///
+    /// `lhs` and `rhs` can reference any column on the table being updated or in a table joined
+    /// into the query via a [`from`](Self::from) clause. The statement will only apply to rows
+    /// where `lhs` and `rhs` satisfy the comparison operator `op`.
+    fn filter(self, lhs: Column<'a>, op: impl Into<Cow<'a, str>>, rhs: Column<'a>) -> Self;
+
+    /// Join another table or view into the query.
+    ///
+    /// `item` indicates a table to include in the operation in addition to the table being updated.
+    /// This auxiliary table can be referenced in [`set`](Self::set) and [`filter`](Self::filter),
+    /// so that you can use it to compute new values for columns in the main table or to filter the
+    /// rows which should be updated.
+    fn from(self, item: FromItem<'a>) -> Self;
+
+    /// Do the update.
+    ///
+    /// This will execute a statement of the form
+    /// `UPDATE table SET set = to WHERE filter FROM from`.
     async fn execute(self) -> Result<(), Self::Error>;
 }
 

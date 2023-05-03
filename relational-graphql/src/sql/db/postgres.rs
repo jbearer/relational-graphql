@@ -4,8 +4,8 @@
 #![cfg(feature = "postgres")]
 
 use super::{
-    escape_ident, Clause, ConstraintKind, JoinClause, SchemaColumn, SelectColumn, Value,
-    WhereClause,
+    escape_ident, Clause, Column, ConstraintKind, FromItem, JoinClause, SchemaColumn, SelectColumn,
+    Value, WhereClause,
 };
 use crate::{Array, Length};
 use async_std::task::spawn;
@@ -73,13 +73,14 @@ impl Connection {
 
     async fn query<'a, I>(
         &self,
-        statement: &str,
+        statement: impl AsRef<str>,
         params: I,
     ) -> Result<BoxStream<'static, Result<Row, Error>>, Error>
     where
         I: Debug + IntoIterator<Item = &'a Value>,
         I::IntoIter: ExactSizeIterator,
     {
+        let statement = statement.as_ref();
         tracing::info!(?params, "{}", statement);
         let params = params.into_iter().map(|param| {
             let param: &dyn ToSql = param;
@@ -101,6 +102,7 @@ impl super::Connection for Connection {
     type CreateTable<'a, N: Length> = CreateTable<'a, N>;
     type Select<'a> = Select<'a>;
     type Insert<'a, N: Length> = Insert<'a, N>;
+    type Update<'a> = Update<'a>;
 
     async fn create_db(&mut self, name: &str) -> Result<(), Error> {
         self.query(
@@ -164,6 +166,10 @@ impl super::Connection for Connection {
         C: Into<String>,
     {
         Insert::new(self, table.into(), columns)
+    }
+
+    fn update<'a>(&'a self, table: impl Into<Cow<'a, str>> + Send) -> Self::Update<'a> {
+        Update::new(self, table.into())
     }
 }
 
@@ -338,6 +344,88 @@ impl<'a, N: Length> super::Insert<N> for Insert<'a, N> {
                 )
                 .as_str(),
                 &self.params,
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+/// An `UPDATE` statement for a PostgreSQL database.
+pub struct Update<'a> {
+    conn: &'a Connection,
+    table: Cow<'a, str>,
+    columns: Vec<(Cow<'a, str>, Column<'a>)>,
+    from: Vec<FromItem<'a>>,
+    filters: Vec<String>,
+}
+
+impl<'a> Update<'a> {
+    fn new(conn: &'a Connection, table: Cow<'a, str>) -> Self {
+        Self {
+            conn,
+            table,
+            columns: Default::default(),
+            from: Default::default(),
+            filters: Default::default(),
+        }
+    }
+}
+
+#[async_trait]
+impl<'a> super::Update<'a> for Update<'a> {
+    type Error = Error;
+
+    fn set(mut self, set: impl Into<Cow<'a, str>>, to: Column<'a>) -> Self {
+        self.columns.push((set.into(), to));
+        self
+    }
+
+    fn filter(mut self, lhs: Column<'a>, op: impl Into<Cow<'a, str>>, rhs: Column<'a>) -> Self {
+        self.filters
+            .push(format!("{} {} {}", lhs.escape(), op.into(), rhs.escape()));
+        self
+    }
+
+    fn from(mut self, item: FromItem<'a>) -> Self {
+        self.from.push(item);
+        self
+    }
+
+    async fn execute(self) -> Result<(), Self::Error> {
+        // An `UPDATE` statement with no `SET` clause is invalid SQL, but if it had an
+        // interpretation, the only reasonable one would be to do nothing.
+        if self.columns.is_empty() {
+            return Ok(());
+        }
+
+        // Format the `SET` items.
+        let columns = self
+            .columns
+            .into_iter()
+            .map(|(lhs, rhs)| format!("{} = {}", escape_ident(lhs), rhs.escape()))
+            .join(",");
+
+        // Format the `WHERE` clause.
+        let where_clause = if self.filters.is_empty() {
+            "".into()
+        } else {
+            format!(" WHERE {}", self.filters.into_iter().join(" AND "))
+        };
+
+        // Format the `FROM` clause and collect parameters for any values mentioned in the items.
+        let mut params = vec![];
+        let from_clause = format_from_clause(self.from, &mut params);
+
+        self.conn
+            .query(
+                format!(
+                    "UPDATE {} SET {} {}{}",
+                    escape_ident(&self.table),
+                    columns,
+                    from_clause,
+                    where_clause,
+                ),
+                &params,
             )
             .await?;
         Ok(())
@@ -554,6 +642,54 @@ fn format_constraint(table: impl AsRef<str>, kind: ConstraintKind, cols: &[Strin
     }
 }
 
+fn format_from_clause<'a, I>(items: I, params: &mut Vec<Value>) -> String
+where
+    I: IntoIterator<Item = FromItem<'a>>,
+{
+    let mut items = items.into_iter().peekable();
+    if items.peek().is_none() {
+        return "".into();
+    }
+
+    let items = items.map(|item| format_from_item(item, params)).join(",");
+
+    format!("FROM {}", items)
+}
+
+fn format_from_item(item: FromItem, params: &mut Vec<Value>) -> String {
+    match item {
+        FromItem::Alias {
+            table,
+            columns,
+            item,
+        } => {
+            format!(
+                "({}) as {} ({})",
+                format_from_item(*item, params),
+                escape_ident(table),
+                columns.into_iter().map(escape_ident).join(",")
+            )
+        }
+        FromItem::Values { rows } => {
+            let rows = rows
+                .into_iter()
+                .map(|row| {
+                    let row = row
+                        .into_iter()
+                        .map(|val| {
+                            let ty = val.ty();
+                            params.push(val);
+                            format!("${}::{ty}", params.len())
+                        })
+                        .join(",");
+                    format!("({row})")
+                })
+                .join(",");
+            format!("VALUES {rows}")
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -561,97 +697,45 @@ mod test {
         self as relational_graphql, // So the derive macros work in the crate itself.
         graphql::{
             backend::DataSource,
-            type_system::{Id, IntCmpOp, Resource, Type, Value},
+            type_system::{BelongsTo, Id, IntCmpOp, Resource, Type, Value},
         },
         init_logging,
-        sql::data_source::SqlDataSource,
+        sql::{data_source::SqlDataSource, db::temp::TempDatabase},
     };
-    use rand::RngCore;
     use std::env;
-    use std::process::Command;
     use std::str;
 
-    struct Db {
-        name: String,
-        port: u16,
-        password: String,
-    }
+    crate::use_backend!(SqlDataSource<TempDatabase<Connection>>);
 
-    impl Db {
-        fn create() -> Option<Self> {
-            if env::var("POSTGRES_TESTS").is_err() {
-                tracing::warn!("skipping postgres test since POSTGRES_TESTS are not enabled");
-                return None;
-            }
-
-            let name = format!("db{}", rand::thread_rng().next_u64());
-            let port = env::var("POSTGRES_TESTS_PORT")
-                .map(|port| port.parse().unwrap())
-                .unwrap_or(5432);
-            let password = env::var("POSTGRES_TESTS_PASSWORD").unwrap_or("password".to_string());
-
-            tracing::info!("Creating test DB {name} on port {port}");
-            let output = Command::new("createdb")
-                .arg("-h")
-                .arg("127.0.0.1")
-                .arg("-p")
-                .arg(&port.to_string())
-                .arg("-U")
-                .arg("postgres")
-                .arg(&name)
-                .env("PGPASSWORD", &password)
-                .output()
-                .unwrap();
-            if !output.status.success() {
-                panic!(
-                    "createdb failed: {}",
-                    str::from_utf8(&output.stderr).unwrap()
-                );
-            }
-
-            Some(Self {
-                name,
-                port,
-                password,
-            })
+    async fn connect() -> Option<GraphQLBackend> {
+        if env::var("POSTGRES_TESTS").is_err() {
+            tracing::warn!("skipping postgres test since POSTGRES_TESTS are not enabled");
+            return None;
         }
 
-        async fn connect(&self) -> Connection {
-            let mut config = Config::default();
-            config
-                .dbname(&self.name)
-                .host("127.0.0.1")
-                .user("postgres")
-                .password(&self.password)
-                .host("localhost")
-                .port(self.port);
-            Connection::new(config).await.unwrap()
-        }
-    }
+        let port = env::var("POSTGRES_TESTS_PORT")
+            .map(|port| port.parse().unwrap())
+            .unwrap_or(5432);
+        let password = env::var("POSTGRES_TESTS_PASSWORD").unwrap_or("password".to_string());
 
-    impl Drop for Db {
-        fn drop(&mut self) {
-            tracing::info!("Dropping test DB {}", self.name);
-            let output = Command::new("dropdb")
-                .arg("-h")
-                .arg("127.0.0.1")
-                .arg("-p")
-                .arg(&self.port.to_string())
-                .arg("-U")
-                .arg("postgres")
-                .arg(&self.name)
-                .env("PGPASSWORD", &self.password)
-                .output()
-                .unwrap();
-            if !output.status.success() {
-                tracing::error!("dropdb failed: {}", str::from_utf8(&output.stderr).unwrap());
-            }
-        }
+        let mut config = Config::default();
+        config
+            .host("127.0.0.1")
+            .user("postgres")
+            .password(password)
+            .port(port);
+
+        Some(
+            TempDatabase::new(Connection::new(config).await.unwrap())
+                .await
+                .unwrap()
+                .into(),
+        )
     }
 
     macro_rules! postgres_test {
         () => {
-            match Db::create() {
+            match connect().await {
                 Some(db) => db,
                 None => return,
             }
@@ -662,6 +746,7 @@ mod test {
     struct Simple {
         id: Id,
         field: i32,
+        references: BelongsTo<Reference>,
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Resource)]
@@ -673,10 +758,20 @@ mod test {
     #[async_std::test]
     async fn test_postgres_data_source() {
         init_logging();
-        let db = postgres_test!();
-        let mut conn = SqlDataSource::from(db.connect().await);
+        let mut conn = postgres_test!();
 
-        let simples = [Simple { id: 1, field: 0 }, Simple { id: 2, field: 1 }];
+        let simples = [
+            Simple {
+                id: 1,
+                field: 0,
+                references: Default::default(),
+            },
+            Simple {
+                id: 2,
+                field: 1,
+                references: Default::default(),
+            },
+        ];
 
         conn.register::<Reference>().await.unwrap();
         conn.insert::<Simple, _>([
@@ -715,10 +810,27 @@ mod test {
             .collect::<Vec<_>>();
         assert_eq!(page, &simples[1..]);
 
-        // Insert an object with a relation.
-        conn.insert::<Reference, _>([reference::ReferenceInput { simple: 2 }])
-            .await
-            .unwrap();
+        // Insert objects with a relation.
+        let references = [
+            Reference {
+                id: 1,
+                simple: simples[0].clone(),
+            },
+            Reference {
+                id: 2,
+                simple: simples[1].clone(),
+            },
+        ];
+        conn.insert::<Reference, _>([
+            reference::ReferenceInput {
+                simple: references[0].simple.id,
+            },
+            reference::ReferenceInput {
+                simple: references[1].simple.id,
+            },
+        ])
+        .await
+        .unwrap();
 
         // Query it back, filling in the relationship.
         let results = conn.query::<Reference>(None).await.unwrap();
@@ -729,12 +841,76 @@ mod test {
             .into_iter()
             .map(|edge| edge.into_node())
             .collect::<Vec<_>>();
+        assert_eq!(page, &references);
+
+        // Load the relation.
+        let results = conn
+            .load_relation::<simple::fields::References>(&simples[0], None)
+            .await
+            .unwrap();
+        let page = conn
+            .load_page(&results, Default::default())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|edge| edge.into_node())
+            .collect::<Vec<_>>();
+        assert_eq!(page, &references[0..1]);
+        let results = conn
+            .load_relation::<simple::fields::References>(&simples[1], None)
+            .await
+            .unwrap();
+        let page = conn
+            .load_page(&results, Default::default())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|edge| edge.into_node())
+            .collect::<Vec<_>>();
+        assert_eq!(page, &references[1..2]);
+
+        // Update the relation.
+        conn.populate_relation::<simple::fields::References, _>([(
+            simples[0].id,
+            references[1].id,
+        )])
+        .await
+        .unwrap();
+        let results = conn
+            .load_relation::<simple::fields::References>(&simples[0], None)
+            .await
+            .unwrap();
+        let page = conn
+            .load_page(&results, Default::default())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|edge| edge.into_node())
+            .collect::<Vec<_>>();
         assert_eq!(
             page,
-            [Reference {
-                id: 1,
-                simple: simples[1].clone()
-            }]
+            [
+                Reference {
+                    id: 1,
+                    simple: simples[0].clone(),
+                },
+                Reference {
+                    id: 2,
+                    simple: simples[0].clone(),
+                },
+            ]
         );
+        let results = conn
+            .load_relation::<simple::fields::References>(&simples[1], None)
+            .await
+            .unwrap();
+        let page = conn
+            .load_page(&results, Default::default())
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|edge| edge.into_node())
+            .collect::<Vec<_>>();
+        assert_eq!(page, []);
     }
 }

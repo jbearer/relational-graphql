@@ -72,10 +72,7 @@ fn table_name<T: gql::Resource>() -> String {
 
 /// The column corresponding to the field `F`.
 fn field_column<F: gql::Field>() -> Column<'static> {
-    Column::qualified(
-        table_name::<F::Resource>().into(),
-        column_name::<F>().into(),
-    )
+    Column::qualified(table_name::<F::Resource>(), column_name::<F>())
 }
 
 /// The name of the column corresponding to the field `F`.
