@@ -5,8 +5,8 @@
 #![cfg(any(test, feature = "mocks"))]
 
 use super::{
-    Clause, Column, ConstraintKind, Error as _, FromItem, JoinClause, SchemaColumn, SelectColumn,
-    Type, Value, WhereClause,
+    Boolean, Clause, Column, ConstraintKind, Error as _, FromItem, JoinClause, SchemaColumn,
+    SelectColumn, Type, Value, WhereClause,
 };
 use crate::{
     typenum::{Sub1, B1},
@@ -311,11 +311,11 @@ impl<'a> super::Select<'a> for Select<'a> {
                     .filter_map(|(l, r)| l.join(r, &schema, &lhs, &op, &rhs).transpose())
                     .try_collect()?;
             }
-            for WhereClause { column, op, param } in self.filters {
-                tracing::info!("WHERE {column} {op} {param}");
+            for clause in self.filters {
+                tracing::info!("WHERE {clause:?}");
                 rows = rows
                     .into_iter()
-                    .filter_map(|row| match row.test(&schema, &column, &op, &param) {
+                    .filter_map(|row| match row.test(&schema, &clause) {
                         Ok(true) => Some(Ok(row)),
                         Ok(false) => None,
                         Err(err) => Some(Err(err)),
@@ -603,14 +603,23 @@ impl Row {
     }
 
     /// Test if this row should be included based on the given condition..
-    fn test(
-        &self,
-        schema: &[Column],
-        column: &Column,
-        op: &str,
-        param: &Value,
-    ) -> Result<bool, Error> {
-        Ok(Self::cmp(self.get(schema, column)?, op, param))
+    fn test(&self, schema: &[Column], clause: &WhereClause) -> Result<bool, Error> {
+        match clause {
+            WhereClause::Any(clauses) => clauses
+                .iter()
+                .map(|clause| self.test(schema, clause))
+                .fold_ok(false, |x, y| x || y),
+            WhereClause::All(clauses) => clauses
+                .iter()
+                .map(|clause| self.test(schema, clause))
+                .fold_ok(true, |x, y| x && y),
+            WhereClause::Predicate(pred) => match pred {
+                Boolean::Cmp { column, op, param } => {
+                    Ok(Self::cmp(self.get(schema, column)?, op, param))
+                }
+                Boolean::OneOf { column, params } => Ok(params.contains(self.get(schema, column)?)),
+            },
+        }
     }
 
     /// Join this row with another row if the joined pair matches a condition.

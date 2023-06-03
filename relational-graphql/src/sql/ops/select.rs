@@ -1,11 +1,14 @@
 //! Compilation of select from high-level GraphQL types into low-level SQL types.
 
 use super::{
-    super::db::{Column, Connection, JoinClause, Row, Select, SelectColumn, SelectExt},
+    super::db::{
+        Boolean, Column, Connection, JoinClause, Row, Select, SelectColumn, SelectExt, WhereClause,
+    },
     field_column, join_column_name, join_table_name, scalar_to_value, table_name, value_to_scalar,
     Error,
 };
 use crate::graphql::type_system::{self as gql, ResourcePredicate, ScalarPredicate, Type};
+use itertools::{Either, Itertools};
 use std::any::TypeId;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -102,7 +105,7 @@ async fn execute_and_filter<C: Connection, T: gql::Resource>(
         Some(Relation::ManyToOne { inverse, owner }) => {
             // We want all the objects in the target resource where the inverse of the relation (the
             // field that indicates the owner of the target) matches the ID of the owning object.
-            query = query.filter(inverse, "=", owner.into());
+            query = query.cmp(inverse, "=", owner.into());
         }
         Some(Relation::ManyToMany {
             join_table,
@@ -111,10 +114,9 @@ async fn execute_and_filter<C: Connection, T: gql::Resource>(
             owner,
             owner_id,
         }) => {
-            query =
-                query
-                    .join(join_table, target, "=", target_id)
-                    .filter(owner, "=", owner_id.into());
+            query = query
+                .join(join_table, target, "=", target_id)
+                .cmp(owner, "=", owner_id.into());
         }
         None => {}
     }
@@ -235,24 +237,46 @@ impl AsRef<[SelectColumn<'static>]> for ColumnMap {
 }
 
 /// Compiler to turn a scalar predicate into a condition which is part of a `WHERE` clause.
-struct ScalarWhereCondition<'a, Q> {
+#[derive(Clone)]
+struct ScalarWhereCondition<'a> {
     column: Column<'a>,
-    query: Q,
 }
 
-impl<'a, Q: Select<'a>, T: gql::Scalar> gql::ScalarPredicateCompiler<T>
-    for ScalarWhereCondition<'a, Q>
-{
-    type Result = Q;
+impl<'a, T: gql::Scalar> gql::ScalarPredicateCompiler<T> for ScalarWhereCondition<'a> {
+    type Result = WhereClause<'a>;
 
     fn cmp(self, op: T::Cmp, value: gql::Value<T>) -> Self::Result {
         match value {
             gql::Value::Lit(x) => {
-                self.query
-                    .filter(self.column, op.to_string(), scalar_to_value(x))
+                Boolean::cmp(self.column, op.to_string(), scalar_to_value(x)).into()
             }
             gql::Value::Var(_) => unimplemented!("pattern variables"),
         }
+    }
+
+    fn any<I: IntoIterator<Item = T::ScalarPredicate>>(self, preds: I) -> Self::Result {
+        let clauses = preds
+            .into_iter()
+            .map(|pred| pred.compile(self.clone()))
+            .collect::<Vec<_>>();
+
+        // Coalesce disjunctions of equality comparisons into a single `IN` operation.
+        let (comparisons, mut clauses): (Vec<_>, Vec<_>) =
+            clauses.into_iter().partition_map(|clause| match clause {
+                WhereClause::Predicate(Boolean::Cmp { column, op, param }) => {
+                    if column == self.column && op == "=" {
+                        Either::Left(param)
+                    } else {
+                        Either::Right(Boolean::cmp(column, op, param).into())
+                    }
+                }
+                clause => Either::Right(clause),
+            });
+        if !comparisons.is_empty() {
+            clauses.push(Boolean::one_of(self.column, comparisons).into());
+        }
+
+        WhereClause::any(clauses)
     }
 }
 
@@ -279,10 +303,10 @@ impl<'a, 'b, Q: Select<'a>, F: gql::Field> gql::Visitor<F::Type> for WhereCondit
     where
         F::Type: gql::Scalar,
     {
-        self.predicate.compile(ScalarWhereCondition {
-            column: field_column::<F>(),
-            query: self.query,
-        })
+        self.query
+            .filter(self.predicate.compile(ScalarWhereCondition {
+                column: field_column::<F>(),
+            }))
     }
 }
 
@@ -503,6 +527,115 @@ mod test {
                 .await
                 .unwrap(),
             &resources,
+        );
+    }
+
+    #[async_std::test]
+    async fn test_in() {
+        init_logging();
+
+        let resources = [
+            TestResource {
+                id: 1,
+                field1: 0,
+                field2: "foo".into(),
+            },
+            TestResource {
+                id: 2,
+                field1: 1,
+                field2: "bar".into(),
+            },
+            TestResource {
+                id: 3,
+                field1: 2,
+                field2: "baz".into(),
+            },
+        ];
+
+        let db = mock::Connection::create();
+        db.create_table_with_rows::<U3>(
+            "test_resources",
+            array![SchemaColumn;
+                SchemaColumn::new("id", Type::Serial),
+                SchemaColumn::new("field1", Type::Int4),
+                SchemaColumn::new("field2", Type::Text),
+            ],
+            [
+                array![Value;
+                    Value::from(resources[0].field1),
+                    Value::from(resources[0].field2.clone()),
+                ],
+                array![Value;
+                    Value::from(resources[1].field1),
+                    Value::from(resources[1].field2.clone()),
+                ],
+                array![Value;
+                    Value::from(resources[2].field1),
+                    Value::from(resources[2].field2.clone()),
+                ],
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            execute::<_, TestResource>(
+                &db,
+                Some(
+                    TestResource::has()
+                        .field1(<i32 as gql::Type>::Predicate::one_of([
+                            gql::Value::Lit(0),
+                            gql::Value::Lit(1),
+                            gql::Value::Lit(2),
+                        ]))
+                        .into()
+                )
+            )
+            .await
+            .unwrap(),
+            resources
+        );
+        assert_eq!(
+            execute::<_, TestResource>(
+                &db,
+                Some(
+                    TestResource::has()
+                        .field1(<i32 as gql::Type>::Predicate::one_of([
+                            gql::Value::Lit(0),
+                            gql::Value::Lit(1),
+                        ]))
+                        .into()
+                )
+            )
+            .await
+            .unwrap(),
+            &resources[..2]
+        );
+        assert_eq!(
+            execute::<_, TestResource>(
+                &db,
+                Some(
+                    TestResource::has()
+                        .field1(<i32 as gql::Type>::Predicate::one_of([gql::Value::Lit(0),]))
+                        .into()
+                )
+            )
+            .await
+            .unwrap(),
+            &resources[..1]
+        );
+        assert_eq!(
+            execute::<_, TestResource>(
+                &db,
+                Some(
+                    TestResource::has()
+                        .field1(<i32 as gql::Type>::Predicate::one_of([]))
+                        .into()
+                )
+            )
+            .await
+            .unwrap(),
+            []
         );
     }
 

@@ -322,18 +322,18 @@ mod test {
         init_logging();
         let schema = schema(test_options!()).await;
 
-        // Query a many-to-many relation: get all characters from episodes released in the '80s,
-        // along with their home planet if they are human or their function if they are droids.
+        // Query a many-to-many relation: get all characters from the sequels along with their home
+        // planet if they are human or their function if they are droids.
         let survivors = schema
             .execute(
                 r#"query {
                     episodes(where: {
                         has: {
-                            year: {
-                                cmp: {
-                                    op: GE
-                                    value: { lit : 1980 }
-                                }
+                            title: {
+                                in: [
+                                    { lit: "The Empire Strikes Back" },
+                                    { lit: "Return of the Jedi" }
+                                ]
                             }
                         }
                     }) {

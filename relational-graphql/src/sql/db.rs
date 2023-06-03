@@ -333,26 +333,111 @@ impl<'a> From<String> for Column<'a> {
 }
 
 /// A clause modifying a SQL statement.
-#[derive(Clone, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Hash, From, TryInto)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, From, TryInto)]
 pub enum Clause<'a> {
     /// A `WHERE` clause.
-    #[display(fmt = "{}", _0)]
     Where(WhereClause<'a>),
     /// A `JOIN` clause.
-    #[display(fmt = "{}", _0)]
     Join(JoinClause<'a>),
 }
 
 /// A `WHERE` clause.
-#[derive(Clone, Debug, Display, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[display(fmt = "WHERE {column} {op} {param}")]
-pub struct WhereClause<'a> {
-    /// The column to filter.
-    pub column: Column<'a>,
-    /// The operation used to filter values of `column`.
-    pub op: Cow<'a, str>,
-    /// Parameter to `op`.
-    pub param: Value,
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum WhereClause<'a> {
+    /// A `WHERE` clause which holds on any row where all of the sub-clauses hold.
+    All(Box<Vec<WhereClause<'a>>>),
+    /// A `WHERE` clause which holds on any row where any of the sub-clauses hold.
+    Any(Box<Vec<WhereClause<'a>>>),
+    /// A `WHERE` clause which holds on any row where a boolean expression is true.
+    Predicate(Boolean<'a>),
+}
+
+impl<'a> From<Boolean<'a>> for WhereClause<'a> {
+    fn from(b: Boolean<'a>) -> Self {
+        Self::Predicate(b)
+    }
+}
+
+impl<'a> WhereClause<'a> {
+    /// A `WHERE` clause which holds on any row where all of the sub-clauses hold.
+    pub fn all<I>(clauses: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<WhereClause<'a>>,
+    {
+        let mut clauses = clauses
+            .into_iter()
+            .map(|clause| clause.into())
+            .collect::<Vec<_>>();
+        if clauses.len() == 1 {
+            clauses.remove(0)
+        } else {
+            Self::All(Box::new(clauses))
+        }
+    }
+
+    /// A `WHERE` clause which holds on any row where any of the sub-clauses hold.
+    pub fn any<I>(clauses: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<WhereClause<'a>>,
+    {
+        let mut clauses = clauses
+            .into_iter()
+            .map(|clause| clause.into())
+            .collect::<Vec<_>>();
+        if clauses.len() == 1 {
+            clauses.remove(0)
+        } else {
+            Self::Any(Box::new(clauses))
+        }
+    }
+}
+
+/// A boolean expression in a `WHERE` clause.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Boolean<'a> {
+    Cmp {
+        /// The column to filter.
+        column: Column<'a>,
+        /// The operation used to filter values of `column`.
+        op: Cow<'a, str>,
+        /// Parameter to `op`.
+        param: Value,
+    },
+    OneOf {
+        /// The column to filter.
+        column: Column<'a>,
+        /// Values to match `column` against.
+        params: Vec<Value>,
+    },
+}
+
+impl<'a> Boolean<'a> {
+    /// A boolean expression which compares the value of a column to a constant.
+    pub fn cmp(
+        column: impl Into<Column<'a>>,
+        op: impl Into<Cow<'a, str>>,
+        param: impl Into<Value>,
+    ) -> Self {
+        Self::Cmp {
+            column: column.into(),
+            op: op.into(),
+            param: param.into(),
+        }
+    }
+
+    /// A boolean expression which checks if the value of a column is one of a list of constants.
+    pub fn one_of<I>(column: impl Into<Column<'a>>, params: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<Value>,
+    {
+        Self::OneOf {
+            column: column.into(),
+            params: params.into_iter().map(|p| p.into()).collect(),
+        }
+    }
 }
 
 /// A `JOIN` clause.
@@ -491,12 +576,14 @@ pub trait Select<'a>: Send {
 #[async_trait]
 pub trait SelectExt<'a>: Select<'a> {
     /// Add a `WHERE` clause to the query.
-    fn filter(
-        self,
-        column: impl Into<Column<'a>>,
-        op: impl Into<Cow<'a, str>>,
-        param: Value,
-    ) -> Self;
+    fn filter(self, clause: impl Into<WhereClause<'a>>) -> Self;
+
+    /// Add a `WHERE` clause based on a column comparison.
+    fn cmp(self, column: impl Into<Column<'a>>, op: impl Into<Cow<'a, str>>, param: Value) -> Self;
+
+    /// Add a `WHERE` clause based on an `IN` operator.
+    fn one_of(self, column: impl Into<Column<'a>>, params: impl IntoIterator<Item = Value>)
+        -> Self;
 
     /// Add a `JOIN` clause to the query.
     fn join(
@@ -533,17 +620,27 @@ pub trait SelectExt<'a>: Select<'a> {
 
 #[async_trait]
 impl<'a, T: Select<'a>> SelectExt<'a> for T {
-    fn filter(
-        self,
-        column: impl Into<Column<'a>>,
-        op: impl Into<Cow<'a, str>>,
-        param: Value,
-    ) -> Self {
-        self.clause(Clause::Where(WhereClause {
+    fn filter(self, clause: impl Into<WhereClause<'a>>) -> Self {
+        self.clause(clause.into().into())
+    }
+
+    fn cmp(self, column: impl Into<Column<'a>>, op: impl Into<Cow<'a, str>>, param: Value) -> Self {
+        self.filter(Boolean::Cmp {
             column: column.into(),
             op: op.into(),
             param,
-        }))
+        })
+    }
+
+    fn one_of(
+        self,
+        column: impl Into<Column<'a>>,
+        params: impl IntoIterator<Item = Value>,
+    ) -> Self {
+        self.filter(Boolean::OneOf {
+            column: column.into(),
+            params: params.into_iter().collect(),
+        })
     }
 
     fn join(

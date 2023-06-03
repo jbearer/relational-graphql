@@ -4,8 +4,8 @@
 #![cfg(feature = "postgres")]
 
 use super::{
-    escape_ident, Clause, Column, ConstraintKind, FromItem, JoinClause, SchemaColumn, SelectColumn,
-    Value, WhereClause,
+    escape_ident, Boolean, Clause, Column, ConstraintKind, FromItem, JoinClause, SchemaColumn,
+    SelectColumn, Value, WhereClause,
 };
 use crate::{Array, Length};
 use async_std::task::spawn;
@@ -206,11 +206,10 @@ impl<'a> super::Select<'a> for Select<'a> {
     fn clause(self, clause: Clause) -> Self {
         let Ok(mut query) = self.0 else { return self; };
         match clause {
-            Clause::Where(WhereClause { column, op, param }) => {
-                query.params.push(param);
+            Clause::Where(clause) => {
                 query
                     .filters
-                    .push(format!("{} {op} ${}", column.escape(), query.params.len()));
+                    .push(format_where_clause(clause, &mut query.params));
             }
             Clause::Join(JoinClause {
                 table,
@@ -687,6 +686,37 @@ fn format_from_item(item: FromItem, params: &mut Vec<Value>) -> String {
                 .join(",");
             format!("VALUES {rows}")
         }
+    }
+}
+
+fn format_where_clause(clause: WhereClause, params: &mut Vec<Value>) -> String {
+    match clause {
+        WhereClause::Any(clauses) => (*clauses)
+            .into_iter()
+            .map(|clause| format_where_clause(clause, params))
+            .join(" OR "),
+        WhereClause::All(clauses) => (*clauses)
+            .into_iter()
+            .map(|clause| format_where_clause(clause, params))
+            .join(" And "),
+        WhereClause::Predicate(pred) => match pred {
+            Boolean::Cmp { column, op, param } => {
+                params.push(param);
+                format!("{} {op} ${}", column.escape(), params.len())
+            }
+            Boolean::OneOf {
+                column,
+                params: values,
+            } => {
+                let start = params.len() + 1;
+                let end = start + values.len();
+
+                params.extend(values);
+
+                let mut args = (start..end).map(|i| format!("${i}"));
+                format!("{} IN ({})", column.escape(), args.join(","))
+            }
+        },
     }
 }
 

@@ -336,6 +336,13 @@ pub mod scalar {
         /// The predicate will act on scalars of type `T` by comparing a given scalar with a
         /// constant [`Value`], using `op` to do the comparison.
         fn cmp(self, op: T::Cmp, value: Value<T>) -> Self::Result;
+
+        /// Instruct the backend to compile a disjunction of predicates.
+        ///
+        /// The result is a predicate which is satisfied if any of `preds` are.
+        fn any<I>(self, preds: I) -> Self::Result
+        where
+            I: IntoIterator<Item = T::ScalarPredicate>;
     }
 
     /// A scalar value.
@@ -408,7 +415,6 @@ pub mod scalar {
                     /// A boolean predicate on an integral scalar.
                     #[derive(
                         Clone,
-                        Copy,
                         Debug,
                         PartialEq,
                         Eq,
@@ -423,6 +429,9 @@ pub mod scalar {
                         Cmp(Cmp),
                         /// Satisfied if the integer being filtered matches the given value.
                         Is(Value<$t>),
+                        /// Satisfied if the integer being filtered matches any of the given values.
+                        #[graphql(name = "in")]
+                        OneOf(Vec<Value<$t>>),
                     }
 
                     impl Predicate {
@@ -434,6 +443,11 @@ pub mod scalar {
                         /// A predicate which compares integers with `value`.
                         pub fn is(value: Value<$t>) -> Self {
                             Self::Is(value)
+                        }
+
+                        /// A predicate which compares integers with a list of options.
+                        pub fn one_of(values: impl IntoIterator<Item = Value<$t>>) -> Self {
+                            Self::OneOf(values.into_iter().collect())
                         }
                     }
 
@@ -448,6 +462,7 @@ pub mod scalar {
                             match self {
                                 Self::Cmp(cmp) => cmp.compile(compiler),
                                 Self::Is(val) => Cmp::new(IntCmpOp::EQ, val).compile(compiler),
+                                Self::OneOf(vals) => compiler.any(vals.into_iter().map(Self::is))
                             }
                         }
                     }
@@ -553,8 +568,11 @@ pub mod scalar {
     pub enum StringPredicate {
         /// Satisfied if the comparison is true.
         Cmp(StringCmp),
-        /// Satisfied if the integer being filtered matches the given value.
+        /// Satisfied if the string being filtered matches the given value.
         Is(Value<String>),
+        /// Satisfied if the string being filtered matches any of the given values.
+        #[graphql(name = "in")]
+        OneOf(Vec<Value<String>>),
     }
 
     impl StringPredicate {
@@ -567,6 +585,11 @@ pub mod scalar {
         pub fn is(value: Value<String>) -> Self {
             Self::Is(value)
         }
+
+        /// A predicate which compares strings with a list of options.
+        pub fn one_of(values: impl IntoIterator<Item = Value<String>>) -> Self {
+            Self::OneOf(values.into_iter().collect())
+        }
     }
 
     impl Predicate<String> for StringPredicate {}
@@ -577,6 +600,7 @@ pub mod scalar {
             match self {
                 Self::Cmp(cmp) => cmp.compile(compiler),
                 Self::Is(val) => StringCmp::new(StringCmpOp::EQ, val).compile(compiler),
+                Self::OneOf(vals) => compiler.any(vals.into_iter().map(Self::is)),
             }
         }
     }
