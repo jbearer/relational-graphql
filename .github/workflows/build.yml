@@ -38,7 +38,7 @@ jobs:
           cache-on-failure: true
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v20
+        uses: cachix/install-nix-action@v21
 
       - name: Format Check
         run: nix develop -c cargo fmt -- --check
