@@ -134,7 +134,10 @@ impl<T: Type, C, E: ObjectType> gql::Connection<C> for SqlConnection<T, C, E> {
 impl<T: Type, C, E: Clone + ObjectType> SqlConnection<T, C, E> {
     /// Load a page from a paginated connection.
     pub fn load(&self, page: PageRequest<usize>) -> Vec<Edge<usize, T, E>> {
-        let after = min(page.after.unwrap_or(0), self.edges.len());
+        let after = match page.after {
+            Some(after) => min(after + 1, self.edges.len()),
+            None => 0,
+        };
         let before = min(page.before.unwrap_or(self.edges.len()), self.edges.len());
         let edges = &self.edges[after..before];
 
