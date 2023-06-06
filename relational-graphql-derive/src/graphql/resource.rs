@@ -127,6 +127,13 @@ fn generate_struct(
             Is(<#ty as Type>::Predicate),
         }
     });
+    // Compiler clause for the `is` predicate.
+    let compile_is_primary = primary_field.as_ref().map(|f| {
+        let name = &f.ident;
+        quote! {
+            #pred_name::Is(pred) => compiler.fields(#has_name::default().#name(pred)),
+        }
+    });
     // The `includes` relation predicate, filtering a collection based on whether or not it contains
     // any items with the given value for their primary field.
     let includes_primary = primary_field.as_ref().map(|f| {
@@ -143,7 +150,7 @@ fn generate_struct(
         .map(|f| generate_field_meta(&field_export, &name, f));
     let field_meta_impls = fields
         .iter()
-        .map(|f| generate_field_meta_impl(&p, &name, &plural_name, &pred_name, f, primary_field));
+        .map(|f| generate_field_meta_impl(&p, &name, &plural_name, f));
 
     // Generate code to reconstruct each field from a builder.
     let field_builders = fields
@@ -215,10 +222,11 @@ fn generate_struct(
                 async_graphql, connection::{self, Connection},
                 backend::{Connection as _, Cursor, DataSource, PageRequest},
                 type_system::{
-                    typenum, Array, Builder, BuildError, Field, FieldVisitor, InputField,
-                    InputFieldVisitor, ManyToManyRelation, ManyToOneRelation, Predicate, Relation,
-                    RelationVisitor, RelationPredicate, RelationPredicateCompiler, Resource,
-                    ResourceBuilder, ResourceInput, ResourcePredicate, Type, Value, Visitor,
+                    typenum, Array, Builder, BuildError, Field, FieldVisitor, FieldsPredicate,
+                    InputField, InputFieldVisitor, ManyToManyRelation, ManyToOneRelation, Predicate,
+                    Relation, RelationVisitor, RelationPredicate, RelationPredicateCompiler,
+                    Resource, ResourceBuilder, ResourceInput, ResourcePredicate,
+                    ResourceFieldsPredicate, ResourcePredicateCompiler, Type, Value, Visitor,
                 },
                 Context, EmptyFields, InputObject, Object, OneofObject, Result,
             };
@@ -258,6 +266,9 @@ fn generate_struct(
                 #(#has_builder_fields)*
             }
 
+            impl Predicate<#name> for #has_name {}
+            impl ResourceFieldsPredicate<#name> for #has_name {}
+
             #[doc = #pred_doc]
             #[derive(Clone, Debug, OneofObject)]
             #export enum #pred_name {
@@ -273,7 +284,15 @@ fn generate_struct(
             }
 
             impl Predicate<#name> for #pred_name {}
-            impl ResourcePredicate<#name> for #pred_name {}
+
+            impl ResourcePredicate<#name> for #pred_name {
+                fn compile<C: ResourcePredicateCompiler<#name>>(self, compiler: C) -> C::Result {
+                    match self {
+                        Self::Has(pred) => compiler.fields(*pred),
+                        #compile_is_primary
+                    }
+                }
+            }
 
             #[doc = #quant_doc]
             #[derive(Clone, Debug, InputObject)]
@@ -341,6 +360,7 @@ fn generate_struct(
 
                 type ResourcePredicate = #pred_name;
                 type RelationPredicate = #relation_pred_name;
+                type FieldsPredicate = #has_name;
 
                 type ResourceInput = #input_name;
 
@@ -401,9 +421,7 @@ fn generate_field_meta_impl(
     p: &AttrParser,
     resource: &Ident,
     plural_resource: &Ident,
-    pred_name: &Ident,
     f: &Field,
-    primary_field: Option<&Field>,
 ) -> TokenStream {
     let name = f.ident.as_ref().expect("Resource fields must be named");
     let meta_name = field_meta_name(name);
@@ -424,11 +442,6 @@ fn generate_field_meta_impl(
             RelationArity::ManyToMany => quote!(visit_many_to_many),
             RelationArity::ManyToOne => quote!(visit_many_to_one),
         };
-        let get_primary = primary_field.map(|_| {
-            // A relation can never be the primary field, so if we try to get the predicate on this
-            // relation from a predicate on the primary field, we simply return [`None`].
-            quote!(#pred_name::Is(_) => None,)
-        });
         quote! {
             impl Relation for fields::#meta_name {
                 type Owner = #resource;
@@ -440,36 +453,21 @@ fn generate_field_meta_impl(
                 }
 
                 fn get_predicate(
-                    predicate: &#pred_name,
+                    predicate: &FieldsPredicate<#resource>,
                 ) -> Option<&<Self::Target as Resource>::RelationPredicate> {
-                    match predicate {
-                        #pred_name::Has(has) => {
-                            has.#name.as_ref()
-                        }
-                        #get_primary
-                    }
+                    predicate.#name.as_ref()
                 }
 
                 fn get_predicate_mut(
-                    predicate: &mut #pred_name,
+                    predicate: &mut FieldsPredicate<#resource>,
                 ) -> Option<&mut <Self::Target as Resource>::RelationPredicate> {
-                    match predicate {
-                        #pred_name::Has(has) => {
-                            has.#name.as_mut()
-                        }
-                        #get_primary
-                    }
+                    predicate.#name.as_mut()
                 }
 
                 fn take_predicate(
-                    predicate: &mut #pred_name,
+                    predicate: &mut FieldsPredicate<#resource>,
                 ) -> Option<<Self::Target as Resource>::RelationPredicate> {
-                    match predicate {
-                        #pred_name::Has(has) => {
-                            has.#name.take()
-                        }
-                        #get_primary
-                    }
+                    predicate.#name.take()
                 }
             }
 
@@ -478,30 +476,6 @@ fn generate_field_meta_impl(
             }
         }
     } else {
-        let get_primary = primary_field.map(|primary| {
-            if f.ident == primary.ident {
-                quote!(#pred_name::Is(f) => Some(f),)
-            } else {
-                quote!(#pred_name::Is(_) => None,)
-            }
-        });
-        let take_primary = primary_field.map(|primary| {
-            if f.ident == primary.ident {
-                quote!(#pred_name::Is(_) => {
-                    // If we take the primary predicate from an `Is` variant, there are no
-                    // predicates left, but `Is` requires exactly one. Thus, the predicate changes
-                    // to a `Has` variant with no fields.
-                    let #pred_name::Is(f) = std::mem::replace(
-                        predicate, #pred_name::Has(Default::default()),
-                    ) else {
-                        unreachable!();
-                    };
-                    Some(f)
-                })
-            } else {
-                quote!(#pred_name::Is(_) => None,)
-            }
-        });
         let input = if field_is_input(p, resource, plural_resource, f) {
             Some(quote! {
                 impl InputField for fields::#meta_name {
@@ -527,36 +501,21 @@ fn generate_field_meta_impl(
                 }
 
                 fn get_predicate(
-                    predicate: &#pred_name,
+                    predicate: &FieldsPredicate<#resource>,
                 ) -> Option<&<Self::Type as Type>::Predicate> {
-                    match predicate {
-                        #pred_name::Has(has) => {
-                            has.#name.as_ref()
-                        }
-                        #get_primary
-                    }
+                    predicate.#name.as_ref()
                 }
 
                 fn get_predicate_mut(
-                    predicate: &mut #pred_name,
+                    predicate: &mut FieldsPredicate<#resource>,
                 ) -> Option<&mut <Self::Type as Type>::Predicate> {
-                    match predicate {
-                        #pred_name::Has(has) => {
-                            has.#name.as_mut()
-                        }
-                        #get_primary
-                    }
+                    predicate.#name.as_mut()
                 }
 
                 fn take_predicate(
-                    predicate: &mut #pred_name,
+                    predicate: &mut FieldsPredicate<#resource>,
                 ) -> Option<<Self::Type as Type>::Predicate> {
-                    match predicate {
-                        #pred_name::Has(has) => {
-                            has.#name.take()
-                        }
-                        #take_primary
-                    }
+                    predicate.#name.take()
                 }
             }
 

@@ -700,6 +700,9 @@ pub mod resource {
         /// A boolean predicate on a [`Relation`] targeting items of this type.
         type RelationPredicate: RelationPredicate<Self>;
 
+        /// A predicate on a resource which acts on each field of the resource.
+        type FieldsPredicate: ResourceFieldsPredicate<Self>;
+
         /// The input used to specify a new object of this type.
         ///
         /// The input contains input values for each of the input fields of this resource.
@@ -797,6 +800,9 @@ pub mod resource {
         }
     }
 
+    /// A predicate on a resource which acts on each field of the resource.
+    pub type FieldsPredicate<T> = <T as Resource>::FieldsPredicate;
+
     /// A backend specific interface to query results, used to reconstruct a [`Resource`].
     pub trait ResourceBuilder<T: Resource> {
         /// Error reconstructing the object.
@@ -808,6 +814,42 @@ pub mod resource {
 
     /// A boolean predicate on a resource type `T`.
     pub trait ResourcePredicate<T: Resource<ResourcePredicate = Self>>: Predicate<T> {
+        /// Compile this predicate into a form which the backend can execute.
+        ///
+        /// When a backend data source executes a GraphQL query, it must compile each predicate in
+        /// the query into a form which can be applied to data in the backend's particular datda
+        /// model. For resource predicates, the backend implementation will construct a
+        /// [`ResourcePredicateCompiler`] which is specific to that backend and pass it to
+        /// [`compile`](Self::compile). The predicate will use the backend-agnostic
+        /// [`ResourcePredicateCompiler`] interface to describe the structure of this predicate and
+        /// instruct the backend on how to compile it.
+        fn compile<C: ResourcePredicateCompiler<T>>(self, compiler: C) -> C::Result;
+    }
+
+    /// A generic interface to a backend-specific compiler for predicates on resource.
+    ///
+    /// A [`ResourcePredicate`] can use this interface to instruct an arbitrary backend on how to
+    /// compile itself into a backend-specific format.
+    pub trait ResourcePredicateCompiler<T: Resource> {
+        /// The backend-specific compilation result.
+        type Result;
+
+        /// Instruct the backend to compile a predicate based on sub-predicates for each field.
+        ///
+        /// The result is a predicate which is satisfied on `T` if the appropriate sub-predicate is
+        /// satisfied on each field of `T`.
+        fn fields(self, preds: FieldsPredicate<T>) -> Self::Result;
+
+        /// Instruct the backend to compile a disjunction of predicates.
+        ///
+        /// The result is a predicate which is satisfied if any of `preds` are.
+        fn any<I>(self, preds: I) -> Self::Result
+        where
+            I: IntoIterator<Item = T::ResourcePredicate>;
+    }
+
+    /// A boolean predicate on the fields of a resource type `T`.
+    pub trait ResourceFieldsPredicate<T: Resource<FieldsPredicate = Self>>: Predicate<T> {
         /// Get the sub-predicate on the field `F` of resource `T`, if there is one.
         fn get<F: Field<Resource = T>>(&self) -> Option<&<F::Type as Type>::Predicate> {
             F::get_predicate(self)
@@ -851,23 +893,23 @@ pub mod resource {
         /// Access this field of a particular [`Resource`].
         fn get(resource: &Self::Resource) -> &Self::Type;
 
-        /// Access the sub-predicate used to filter this field in a [`ResourcePredicate`].
+        /// Access the sub-predicate used to filter this field in a [`ResourceFieldsPredicate`].
         fn get_predicate(
-            predicate: &<Self::Resource as Resource>::ResourcePredicate,
+            predicate: &FieldsPredicate<Self::Resource>,
         ) -> Option<&<Self::Type as Type>::Predicate>;
 
-        /// Access the sub-predicate used to filter this field in a [`ResourcePredicate`].
+        /// Access the sub-predicate used to filter this field in a [`ResourceFieldsPredicate`].
         fn get_predicate_mut(
-            predicate: &mut <Self::Resource as Resource>::ResourcePredicate,
+            predicate: &mut FieldsPredicate<Self::Resource>,
         ) -> Option<&mut <Self::Type as Type>::Predicate>;
 
-        /// Take the sub-predicate used to fitler this field in a [`ResourcePredicate`].
+        /// Take the sub-predicate used to fitler this field in a [`ResourceFieldsPredicate`].
         ///
         /// The next time this function, [`get_predicate`](Self::get_predicate), or
         /// [`get_predicate_mut`](Self::get_predicate_mut) is called on the same field, it will
         /// return [`None`], since the field has been taken.
         fn take_predicate(
-            predicate: &mut <Self::Resource as Resource>::ResourcePredicate,
+            predicate: &mut FieldsPredicate<Self::Resource>,
         ) -> Option<<Self::Type as Type>::Predicate>;
 
         /// Is this the unique ID field for its [`Resource`]?
@@ -919,23 +961,23 @@ pub mod resource {
         /// Describe this relation to a backend.
         fn visit<V: RelationVisitor<Self::Owner>>(visitor: &mut V) -> V::Output;
 
-        /// Access the sub-predicate used to filter this relation in a [`ResourcePredicate`].
+        /// Access the sub-predicate used to filter this relation in a [`ResourceFieldsPredicate`].
         fn get_predicate(
-            predicate: &<Self::Owner as Resource>::ResourcePredicate,
+            predicate: &FieldsPredicate<Self::Owner>,
         ) -> Option<&<Self::Target as Resource>::RelationPredicate>;
 
-        /// Access the sub-predicate used to filter this relation in a [`ResourcePredicate`].
+        /// Access the sub-predicate used to filter this relation in a [`ResourceFieldsPredicate`].
         fn get_predicate_mut(
-            predicate: &mut <Self::Owner as Resource>::ResourcePredicate,
+            predicate: &mut FieldsPredicate<Self::Owner>,
         ) -> Option<&mut <Self::Target as Resource>::RelationPredicate>;
 
-        /// Take the sub-predicate used to fitler this relation in a [`ResourcePredicate`].
+        /// Take the sub-predicate used to fitler this relation in a [`ResourceFieldsPredicate`].
         ///
         /// The next time this function, [`get_predicate`](Self::get_predicate), or
         /// [`get_predicate_mut`](Self::get_predicate_mut) is called on the same relation, it will
         /// return [`None`], since the field has been taken.
         fn take_predicate(
-            predicate: &mut <Self::Owner as Resource>::ResourcePredicate,
+            predicate: &mut FieldsPredicate<Self::Owner>,
         ) -> Option<<Self::Target as Resource>::RelationPredicate>;
     }
 

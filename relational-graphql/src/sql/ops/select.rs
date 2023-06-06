@@ -7,13 +7,14 @@ use super::{
     field_column, join_column_name, join_table_name, scalar_to_value, table_name, value_to_scalar,
     Error,
 };
-use crate::graphql::type_system::{self as gql, ResourcePredicate, ScalarPredicate, Type};
+use crate::graphql::type_system::{
+    self as gql, ResourceFieldsPredicate, ResourcePredicate, ScalarPredicate, Type,
+};
 use itertools::{Either, Itertools};
 use std::any::TypeId;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use take_mut::take;
 
 enum Relation<'a> {
     ManyToOne {
@@ -280,33 +281,96 @@ impl<'a, T: gql::Scalar> gql::ScalarPredicateCompiler<T> for ScalarWhereConditio
     }
 }
 
-/// Compiler to turn a predicate into a condition which is part of a `WHERE` clause.
-struct WhereCondition<'a, Q, F: gql::Field> {
+/// Compiler to turn a resource predicate into a conditoin which is part of a `WHERE` clause.
+struct ResourceWhereCondition<'a> {
     columns: &'a mut ColumnMap,
-    query: Q,
+}
+
+impl<'a, T: gql::Resource> gql::ResourcePredicateCompiler<T> for ResourceWhereCondition<'a> {
+    type Result = WhereClause<'static>;
+
+    fn fields(self, fields: gql::FieldsPredicate<T>) -> Self::Result {
+        struct Visitor<'a, T: gql::Resource> {
+            columns: &'a mut ColumnMap,
+            fields: gql::FieldsPredicate<T>,
+            clauses: Vec<WhereClause<'static>>,
+        }
+
+        impl<'a, T: gql::Resource> gql::ResourceVisitor<T> for Visitor<'a, T> {
+            type Output = WhereClause<'static>;
+
+            fn visit_field_in_place<F: gql::Field<Resource = T>>(&mut self) {
+                if let Some(predicate) = self.fields.take::<F>() {
+                    self.clauses.push(F::Type::describe(WhereCondition::<F> {
+                        columns: self.columns,
+                        predicate,
+                    }))
+                }
+            }
+
+            fn visit_many_to_one_in_place<R: gql::ManyToOneRelation<Owner = T>>(&mut self) {
+                if let Some(_sub_pred) = R::take_predicate(&mut self.fields) {
+                    unimplemented!("relations predicates")
+                }
+            }
+
+            fn visit_many_to_many_in_place<R: gql::ManyToManyRelation<Owner = T>>(&mut self) {
+                if let Some(_sub_pred) = R::take_predicate(&mut self.fields) {
+                    unimplemented!("relations predicates")
+                }
+            }
+
+            fn end(self) -> Self::Output {
+                WhereClause::all(self.clauses)
+            }
+        }
+
+        T::describe_resource(Visitor {
+            columns: self.columns,
+            fields,
+            clauses: vec![],
+        })
+    }
+
+    fn any<I>(self, preds: I) -> Self::Result
+    where
+        I: IntoIterator<Item = T::ResourcePredicate>,
+    {
+        WhereClause::any(preds.into_iter().map(|pred| {
+            pred.compile(ResourceWhereCondition {
+                columns: self.columns,
+            })
+        }))
+    }
+}
+
+/// Compiler to turn a predicate into a condition which is part of a `WHERE` clause.
+struct WhereCondition<'a, F: gql::Field> {
+    columns: &'a mut ColumnMap,
     predicate: <F::Type as gql::Type>::Predicate,
 }
 
-impl<'a, 'b, Q: Select<'a>, F: gql::Field> gql::Visitor<F::Type> for WhereCondition<'b, Q, F> {
-    type Output = Q;
+impl<'a, F: gql::Field> gql::Visitor<F::Type> for WhereCondition<'a, F> {
+    type Output = WhereClause<'static>;
 
-    fn resource(self) -> Q
+    fn resource(self) -> Self::Output
     where
         F::Type: gql::Resource,
     {
         // Join `T` into the query.
         self.columns.join::<F>();
-        compile_predicate::<Q, F::Type>(self.columns, self.query, self.predicate)
+        self.predicate.compile(ResourceWhereCondition {
+            columns: self.columns,
+        })
     }
 
     fn scalar(self) -> Self::Output
     where
         F::Type: gql::Scalar,
     {
-        self.query
-            .filter(self.predicate.compile(ScalarWhereCondition {
-                column: field_column::<F>(),
-            }))
+        self.predicate.compile(ScalarWhereCondition {
+            column: field_column::<F>(),
+        })
     }
 }
 
@@ -316,49 +380,7 @@ fn compile_predicate<'a, 'b, Q: Select<'a>, T: gql::Resource>(
     query: Q,
     pred: T::ResourcePredicate,
 ) -> Q {
-    struct Visitor<'a, Q, T: gql::Resource> {
-        columns: &'a mut ColumnMap,
-        query: Q,
-        pred: T::ResourcePredicate,
-    }
-
-    impl<'a, 'b, Q: Select<'a>, T: gql::Resource> gql::ResourceVisitor<T> for Visitor<'b, Q, T> {
-        type Output = Q;
-
-        fn visit_field_in_place<F: gql::Field<Resource = T>>(&mut self) {
-            if let Some(sub_pred) = self.pred.take::<F>() {
-                take(&mut self.query, |query| {
-                    F::Type::describe(WhereCondition::<Q, F> {
-                        columns: self.columns,
-                        query,
-                        predicate: sub_pred,
-                    })
-                });
-            }
-        }
-
-        fn visit_many_to_one_in_place<R: gql::ManyToOneRelation<Owner = T>>(&mut self) {
-            if let Some(_sub_pred) = R::take_predicate(&mut self.pred) {
-                unimplemented!("relations predicates")
-            }
-        }
-
-        fn visit_many_to_many_in_place<R: gql::ManyToManyRelation<Owner = T>>(&mut self) {
-            if let Some(_sub_pred) = R::take_predicate(&mut self.pred) {
-                unimplemented!("relations predicates")
-            }
-        }
-
-        fn end(self) -> Q {
-            self.query
-        }
-    }
-
-    T::describe_resource(Visitor {
-        columns,
-        query,
-        pred,
-    })
+    query.filter(pred.compile(ResourceWhereCondition { columns }))
 }
 
 /// Builder to help a resource object reconstruct itself from query results.
