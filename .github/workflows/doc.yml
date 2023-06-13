@@ -28,6 +28,10 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@v21
 
+      - name: Doc Tests
+        run: |
+          nix develop -c cargo test --release --all-features --doc
+
       - name: Generate Documentation
         run: |
           nix develop -c cargo doc --workspace --no-deps --lib --release

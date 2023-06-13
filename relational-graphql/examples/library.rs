@@ -18,6 +18,7 @@ relational_graphql::use_backend!(SqlDataSource<TempDatabase<postgres::Connection
 #[derive(Clone, Debug, Resource)]
 pub struct Author {
     id: Id,
+    #[resource(searchable)]
     name: String,
     born: u32,
     books: BelongsTo<Book>,
@@ -26,7 +27,9 @@ pub struct Author {
 #[derive(Clone, Debug, Resource)]
 pub struct Book {
     id: Id,
+    #[resource(searchable)]
     title: String,
+    #[resource(searchable)]
     author: Author,
     pages: BelongsTo<Page>,
 }
@@ -36,6 +39,7 @@ pub struct Page {
     id: Id,
     number: u32,
     book: Book,
+    #[resource(searchable)]
     text: String,
 }
 
@@ -122,11 +126,13 @@ pub async fn create_db(opt: Options) -> GraphQLBackend {
     ])
     .await
     .unwrap();
-    db.insert::<Page, _>((1..=3).flat_map(|book| {
+    let dummy_keywords = ["principle", "historical", "learns", "studies"];
+    db.insert::<Page, _>(dummy_keywords.into_iter().enumerate().flat_map(|(i, kw)| {
+        let book = (i + 1) as i32;
         (0..10 * book).map(move |page| page::PageInput {
             book,
             number: page as u32 + 1,
-            text: "Sample text".into(),
+            text: format!("Sample text about {kw}"),
         })
     }))
     .await
@@ -298,6 +304,78 @@ mod test {
                                 "title": "Learning!"
                             }
                         }
+                    ]
+                }
+            })
+        );
+    }
+
+    #[async_std::test]
+    async fn test_search() {
+        init_logging();
+        let schema = schema(test_options!()).await;
+
+        // Search will return an inexact match.
+        let matching_books = schema
+            .execute(
+                r#"query {
+                    books(where: {
+                        matches: "histories"
+                    }) {
+                        edges {
+                            node {
+                                title
+                            }
+                        }
+                    }
+                }"#,
+            )
+            .await
+            .into_result()
+            .unwrap();
+        assert_eq!(
+            matching_books.data,
+            value!({
+                "books": {
+                    "edges": [
+                        {
+                            "node": {
+                                "title": "History of Something"
+                            }
+                        },
+                    ]
+                }
+            })
+        );
+
+        // Search can find matches in nested fields, such as author.
+        let matching_books = schema
+            .execute(
+                r#"query {
+                    books(where: {
+                        matches: "Abed"
+                    }) {
+                        edges {
+                            node {
+                                title
+                            }
+                        }
+                    }
+                }"#,
+            )
+            .await
+            .into_result()
+            .unwrap();
+        assert_eq!(
+            matching_books.data,
+            value!({
+                "books": {
+                    "edges": [
+                        {
+                            "node": {
+                                "title": "Learning!"
+                            }
+                        },
                     ]
                 }
             })

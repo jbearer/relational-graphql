@@ -840,6 +840,17 @@ pub mod resource {
         /// satisfied on each field of `T`.
         fn fields(self, preds: FieldsPredicate<T>) -> Self::Result;
 
+        /// Instruct the backend to compile a predicate based on a query string.
+        ///
+        /// The result is a predicate which is satisfied if the query string matches the resource's
+        /// searchable fields. The matching algorithm is an implementation-defined, text-based
+        /// matching which tries to be as powerful and general-purpose as possible. It prioritizes
+        /// efficiency and efficacy over predictability, so, unlike the rest of this system, the
+        /// results may depend on a complex, opaque algorithm or even a source of non-determinism.
+        ///
+        /// This type of predicate provides functionality similar to general-purpose search engines.
+        fn matches(self, query: String) -> Self::Result;
+
         /// Instruct the backend to compile a disjunction of predicates.
         ///
         /// The result is a predicate which is satisfied if any of `preds` are.
@@ -915,6 +926,11 @@ pub mod resource {
         /// Is this the unique ID field for its [`Resource`]?
         fn is_id() -> bool {
             TypeId::of::<Self>() == TypeId::of::<<Self::Resource as Resource>::Id>()
+        }
+
+        /// Should this field contribute to search results for its [`Resource`]?
+        fn is_searchable() -> bool {
+            false
         }
     }
 

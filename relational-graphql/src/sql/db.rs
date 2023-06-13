@@ -405,6 +405,12 @@ pub enum Boolean<'a> {
         /// Parameter to `op`.
         param: Value,
     },
+    Matches {
+        /// The text to match on, sourced from one or more columns.
+        text: Vec<Column<'a>>,
+        /// The query to match against the text.
+        query: Cow<'a, str>,
+    },
     OneOf {
         /// The column to filter.
         column: Column<'a>,
@@ -424,6 +430,18 @@ impl<'a> Boolean<'a> {
             column: column.into(),
             op: op.into(),
             param: param.into(),
+        }
+    }
+
+    /// A boolean expression which checks if a body of text matches a query string.
+    pub fn matches<I>(text: I, query: impl Into<Cow<'a, str>>) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<Column<'a>>,
+    {
+        Self::Matches {
+            text: text.into_iter().map(|c| c.into()).collect(),
+            query: query.into(),
         }
     }
 

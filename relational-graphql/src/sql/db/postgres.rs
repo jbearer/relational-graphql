@@ -716,6 +716,14 @@ fn format_where_clause(clause: WhereClause, params: &mut Vec<Value>) -> String {
                 let mut args = (start..end).map(|i| format!("${i}"));
                 format!("{} IN ({})", column.escape(), args.join(","))
             }
+            Boolean::Matches { text, query } => {
+                params.push(query.to_string().into());
+                format!(
+                    "to_tsvector({}) @@ plainto_tsquery(${})",
+                    text.into_iter().map(|col| col.escape()).join("||"),
+                    params.len()
+                )
+            }
         },
     }
 }

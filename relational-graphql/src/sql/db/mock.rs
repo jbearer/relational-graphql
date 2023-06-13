@@ -618,6 +618,7 @@ impl Row {
                     Ok(Self::cmp(self.get(schema, column)?, op, param))
                 }
                 Boolean::OneOf { column, params } => Ok(params.contains(self.get(schema, column)?)),
+                Boolean::Matches { .. } => unimplemented!("text search in mock database"),
             },
         }
     }

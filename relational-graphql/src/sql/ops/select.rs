@@ -332,6 +332,12 @@ impl<'a, T: gql::Resource> gql::ResourcePredicateCompiler<T> for ResourceWhereCo
         })
     }
 
+    fn matches(self, query: String) -> Self::Result {
+        // Visit the fields of `T`, flattening the searchable ones into a list of primitive columns
+        // which can be converted to text.
+        Boolean::matches(searchable_columns::<T>(self.columns), query).into()
+    }
+
     fn any<I>(self, preds: I) -> Self::Result
     where
         I: IntoIterator<Item = T::ResourcePredicate>,
@@ -381,6 +387,64 @@ fn compile_predicate<'a, 'b, Q: Select<'a>, T: gql::Resource>(
     pred: T::ResourcePredicate,
 ) -> Q {
     query.filter(pred.compile(ResourceWhereCondition { columns }))
+}
+
+fn searchable_columns<T: gql::Resource>(
+    columns: &mut ColumnMap,
+) -> impl Iterator<Item = Column<'static>> {
+    T::describe_fields(&mut SearchableColumns { columns })
+        .into_iter()
+        .flatten()
+}
+
+struct SearchableColumns<'a> {
+    columns: &'a mut ColumnMap,
+}
+
+impl<'a, T: gql::Resource> gql::FieldVisitor<T> for SearchableColumns<'a> {
+    type Output = Vec<Column<'static>>;
+
+    fn visit<F: gql::Field<Resource = T>>(&mut self) -> Self::Output {
+        if F::is_searchable() {
+            // Check the type of `F`. If it is a primitive, just include the corresponding column.
+            // If it is a resource, we need to join the corresponding table into the query and then
+            // include all of that resource's searchable fields.
+            struct Visitor<'a, F> {
+                columns: &'a mut ColumnMap,
+                _phantom: PhantomData<fn(&F)>,
+            }
+
+            impl<'a, F: gql::Field> gql::Visitor<F::Type> for Visitor<'a, F> {
+                type Output = Vec<Column<'static>>;
+
+                fn resource(self) -> Self::Output
+                where
+                    F::Type: gql::Resource,
+                {
+                    // Join the corresponding table into the query.
+                    self.columns.join::<F>();
+
+                    // Get the searchable columns from the resource `F::Type`.
+                    searchable_columns::<F::Type>(self.columns).collect()
+                }
+
+                fn scalar(self) -> Self::Output
+                where
+                    F::Type: gql::Scalar,
+                {
+                    // Take this columm.
+                    vec![field_column::<F>()]
+                }
+            }
+
+            F::Type::describe(Visitor::<F> {
+                columns: self.columns,
+                _phantom: Default::default(),
+            })
+        } else {
+            vec![]
+        }
+    }
 }
 
 /// Builder to help a resource object reconstruct itself from query results.

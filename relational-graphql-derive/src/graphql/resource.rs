@@ -144,6 +144,24 @@ fn generate_struct(
         }
     });
 
+    // Compile a list of searchable fields
+    let searchable_fields = fields
+        .iter()
+        .filter(|f| p.has_bool(&f.attrs, "searchable"))
+        .collect::<Vec<_>>();
+    // If this resource is searchable, generate a variant of the predicate struct for text matching.
+    let matches = if searchable_fields.is_empty() {
+        None
+    } else {
+        Some(quote!(Matches(String),))
+    };
+    // Compiler clause for the `matches` predicate.
+    let compile_matches = matches.as_ref().map(|_| {
+        quote! {
+            #pred_name::Matches(query) => compiler.matches(query),
+        }
+    });
+
     // Generate marker types to hold metadata for each field.
     let field_metas = fields
         .iter()
@@ -274,6 +292,7 @@ fn generate_struct(
             #export enum #pred_name {
                 /// Filter by fields.
                 Has(Box<#has_name>),
+                #matches
                 #is_primary
             }
 
@@ -290,6 +309,7 @@ fn generate_struct(
                     match self {
                         Self::Has(pred) => compiler.fields(*pred),
                         #compile_is_primary
+                        #compile_matches
                     }
                 }
             }
@@ -490,6 +510,16 @@ fn generate_field_meta_impl(
             None
         };
 
+        let is_searchable = if p.has_bool(&f.attrs, "searchable") {
+            Some(quote! {
+                fn is_searchable() -> bool {
+                    true
+                }
+            })
+        } else {
+            None
+        };
+
         quote! {
             impl Field for fields::#meta_name {
                 type Type = #ty;
@@ -517,6 +547,8 @@ fn generate_field_meta_impl(
                 ) -> Option<<Self::Type as Type>::Predicate> {
                     predicate.#name.take()
                 }
+
+                #is_searchable
             }
 
             #input
