@@ -294,6 +294,10 @@ fn generate_struct(
                 Has(Box<#has_name>),
                 #matches
                 #is_primary
+                /// Filter by any of the sub-predicates.
+                Any(Box<Vec<#pred_name>>),
+                /// Filter by all of the sub-predicates.
+                All(Box<Vec<#pred_name>>),
             }
 
             impl From<#has_name> for #pred_name {
@@ -310,6 +314,8 @@ fn generate_struct(
                         Self::Has(pred) => compiler.fields(*pred),
                         #compile_is_primary
                         #compile_matches
+                        Self::Any(preds) => compiler.any(*preds),
+                        Self::All(preds) => compiler.all(*preds),
                     }
                 }
             }

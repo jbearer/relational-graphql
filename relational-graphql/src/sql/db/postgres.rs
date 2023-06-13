@@ -691,14 +691,26 @@ fn format_from_item(item: FromItem, params: &mut Vec<Value>) -> String {
 
 fn format_where_clause(clause: WhereClause, params: &mut Vec<Value>) -> String {
     match clause {
-        WhereClause::Any(clauses) => (*clauses)
-            .into_iter()
-            .map(|clause| format_where_clause(clause, params))
-            .join(" OR "),
-        WhereClause::All(clauses) => (*clauses)
-            .into_iter()
-            .map(|clause| format_where_clause(clause, params))
-            .join(" And "),
+        WhereClause::Any(clauses) => {
+            if clauses.is_empty() {
+                "false".into()
+            } else {
+                (*clauses)
+                    .into_iter()
+                    .map(|clause| format_where_clause(clause, params))
+                    .join(" OR ")
+            }
+        }
+        WhereClause::All(clauses) => {
+            if clauses.is_empty() {
+                "true".into()
+            } else {
+                (*clauses)
+                    .into_iter()
+                    .map(|clause| format_where_clause(clause, params))
+                    .join(" AND ")
+            }
+        }
         WhereClause::Predicate(pred) => match pred {
             Boolean::Cmp { column, op, param } => {
                 params.push(param);
@@ -717,12 +729,20 @@ fn format_where_clause(clause: WhereClause, params: &mut Vec<Value>) -> String {
                 format!("{} IN ({})", column.escape(), args.join(","))
             }
             Boolean::Matches { text, query } => {
-                params.push(query.to_string().into());
-                format!(
-                    "to_tsvector({}) @@ plainto_tsquery(${})",
-                    text.into_iter().map(|col| col.escape()).join("||"),
-                    params.len()
-                )
+                // An empty query is invalid SQL, but if it had an interpretation, the only
+                // reasonable one would be to return all results, since the semantics of pattern
+                // matching is to return results that match all the search terms, which is vacuously
+                // true for an empty query.
+                if query.is_empty() {
+                    "true".into()
+                } else {
+                    params.push(query.to_string().into());
+                    format!(
+                        "to_tsvector({}) @@ plainto_tsquery(${})",
+                        text.into_iter().map(|col| col.escape()).join("||' '||"),
+                        params.len()
+                    )
+                }
             }
         },
     }

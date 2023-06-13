@@ -279,6 +279,13 @@ impl<'a, T: gql::Scalar> gql::ScalarPredicateCompiler<T> for ScalarWhereConditio
 
         WhereClause::any(clauses)
     }
+
+    fn all<I>(self, preds: I) -> Self::Result
+    where
+        I: IntoIterator<Item = T::ScalarPredicate>,
+    {
+        WhereClause::all(preds.into_iter().map(|pred| pred.compile(self.clone())))
+    }
 }
 
 /// Compiler to turn a resource predicate into a conditoin which is part of a `WHERE` clause.
@@ -343,6 +350,17 @@ impl<'a, T: gql::Resource> gql::ResourcePredicateCompiler<T> for ResourceWhereCo
         I: IntoIterator<Item = T::ResourcePredicate>,
     {
         WhereClause::any(preds.into_iter().map(|pred| {
+            pred.compile(ResourceWhereCondition {
+                columns: self.columns,
+            })
+        }))
+    }
+
+    fn all<I>(self, preds: I) -> Self::Result
+    where
+        I: IntoIterator<Item = T::ResourcePredicate>,
+    {
+        WhereClause::all(preds.into_iter().map(|pred| {
             pred.compile(ResourceWhereCondition {
                 columns: self.columns,
             })

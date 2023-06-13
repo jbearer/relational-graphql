@@ -343,6 +343,13 @@ pub mod scalar {
         fn any<I>(self, preds: I) -> Self::Result
         where
             I: IntoIterator<Item = T::ScalarPredicate>;
+
+        /// Instruct the backend to compile a conjunction of predicates.
+        ///
+        /// The result is a predicate which is satisfied if all of `preds` are.
+        fn all<I>(self, preds: I) -> Self::Result
+        where
+            I: IntoIterator<Item = T::ScalarPredicate>;
     }
 
     /// A scalar value.
@@ -855,6 +862,13 @@ pub mod resource {
         ///
         /// The result is a predicate which is satisfied if any of `preds` are.
         fn any<I>(self, preds: I) -> Self::Result
+        where
+            I: IntoIterator<Item = T::ResourcePredicate>;
+
+        /// Instruct the backend to compile a conjunction of predicates.
+        ///
+        /// The result is a predicate which is satisfied if all of `preds` are.
+        fn all<I>(self, preds: I) -> Self::Result
         where
             I: IntoIterator<Item = T::ResourcePredicate>;
     }
