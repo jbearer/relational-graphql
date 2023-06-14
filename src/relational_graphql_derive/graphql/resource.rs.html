@@ -854,9 +854,6 @@
 <a href="#854" id="854">854</a>
 <a href="#855" id="855">855</a>
 <a href="#856" id="856">856</a>
-<a href="#857" id="857">857</a>
-<a href="#858" id="858">858</a>
-<a href="#859" id="859">859</a>
 </pre><pre class="rust"><code><span class="doccomment">//! Derive macro for the `Resource` trait.
 
 </span><span class="kw">use </span><span class="kw">super</span>::graphql_path;
@@ -986,6 +983,13 @@
             </span>Is(&lt;#ty <span class="kw">as </span>Type&gt;::Predicate),
         }
     });
+    <span class="comment">// Compiler clause for the `is` predicate.
+    </span><span class="kw">let </span>compile_is_primary = primary_field.as_ref().map(|f| {
+        <span class="kw">let </span>name = <span class="kw-2">&amp;</span>f.ident;
+        <span class="macro">quote! </span>{
+            #pred_name::Is(pred) =&gt; compiler.fields(#has_name::default().#name(pred)),
+        }
+    });
     <span class="comment">// The `includes` relation predicate, filtering a collection based on whether or not it contains
     // any items with the given value for their primary field.
     </span><span class="kw">let </span>includes_primary = primary_field.as_ref().map(|f| {
@@ -996,13 +1000,31 @@
         }
     });
 
+    <span class="comment">// Compile a list of searchable fields
+    </span><span class="kw">let </span>searchable_fields = fields
+        .iter()
+        .filter(|f| p.has_bool(<span class="kw-2">&amp;</span>f.attrs, <span class="string">&quot;searchable&quot;</span>))
+        .collect::&lt;Vec&lt;<span class="kw">_</span>&gt;&gt;();
+    <span class="comment">// If this resource is searchable, generate a variant of the predicate struct for text matching.
+    </span><span class="kw">let </span>matches = <span class="kw">if </span>searchable_fields.is_empty() {
+        <span class="prelude-val">None
+    </span>} <span class="kw">else </span>{
+        <span class="prelude-val">Some</span>(<span class="macro">quote!</span>(Matches(String),))
+    };
+    <span class="comment">// Compiler clause for the `matches` predicate.
+    </span><span class="kw">let </span>compile_matches = matches.as_ref().map(|<span class="kw">_</span>| {
+        <span class="macro">quote! </span>{
+            #pred_name::Matches(query) =&gt; compiler.matches(query),
+        }
+    });
+
     <span class="comment">// Generate marker types to hold metadata for each field.
     </span><span class="kw">let </span>field_metas = fields
         .iter()
         .map(|f| generate_field_meta(<span class="kw-2">&amp;</span>field_export, <span class="kw-2">&amp;</span>name, f));
     <span class="kw">let </span>field_meta_impls = fields
         .iter()
-        .map(|f| generate_field_meta_impl(<span class="kw-2">&amp;</span>p, <span class="kw-2">&amp;</span>name, <span class="kw-2">&amp;</span>plural_name, <span class="kw-2">&amp;</span>pred_name, f, primary_field));
+        .map(|f| generate_field_meta_impl(<span class="kw-2">&amp;</span>p, <span class="kw-2">&amp;</span>name, <span class="kw-2">&amp;</span>plural_name, f));
 
     <span class="comment">// Generate code to reconstruct each field from a builder.
     </span><span class="kw">let </span>field_builders = fields
@@ -1074,10 +1096,11 @@
                 async_graphql, connection::{<span class="self">self</span>, Connection},
                 backend::{Connection <span class="kw">as _</span>, Cursor, DataSource, PageRequest},
                 type_system::{
-                    typenum, Array, Builder, BuildError, Field, FieldVisitor, InputField,
-                    InputFieldVisitor, ManyToManyRelation, ManyToOneRelation, Predicate, Relation,
-                    RelationVisitor, RelationPredicate, RelationPredicateCompiler, Resource,
-                    ResourceBuilder, ResourceInput, ResourcePredicate, Type, Value, Visitor,
+                    typenum, Array, Builder, BuildError, Field, FieldVisitor, FieldsPredicate,
+                    InputField, InputFieldVisitor, ManyToManyRelation, ManyToOneRelation, Predicate,
+                    Relation, RelationVisitor, RelationPredicate, RelationPredicateCompiler,
+                    Resource, ResourceBuilder, ResourceInput, ResourcePredicate,
+                    ResourceFieldsPredicate, ResourcePredicateCompiler, Type, Value, Visitor,
                 },
                 Context, EmptyFields, InputObject, Object, OneofObject, <span class="prelude-ty">Result</span>,
             };
@@ -1117,12 +1140,20 @@
                 #(#has_builder_fields)*
             }
 
+            <span class="kw">impl </span>Predicate&lt;#name&gt; <span class="kw">for </span>#has_name {}
+            <span class="kw">impl </span>ResourceFieldsPredicate&lt;#name&gt; <span class="kw">for </span>#has_name {}
+
             <span class="attr">#[doc = #pred_doc]
             #[derive(Clone, Debug, OneofObject)]
             </span>#export <span class="kw">enum </span>#pred_name {
                 <span class="doccomment">/// Filter by fields.
                 </span>Has(Box&lt;#has_name&gt;),
+                #matches
                 #is_primary
+                <span class="doccomment">/// Filter by any of the sub-predicates.
+                </span>Any(Box&lt;Vec&lt;#pred_name&gt;&gt;),
+                <span class="doccomment">/// Filter by all of the sub-predicates.
+                </span>All(Box&lt;Vec&lt;#pred_name&gt;&gt;),
             }
 
             <span class="kw">impl </span>From&lt;#has_name&gt; <span class="kw">for </span>#pred_name {
@@ -1132,7 +1163,18 @@
             }
 
             <span class="kw">impl </span>Predicate&lt;#name&gt; <span class="kw">for </span>#pred_name {}
-            <span class="kw">impl </span>ResourcePredicate&lt;#name&gt; <span class="kw">for </span>#pred_name {}
+
+            <span class="kw">impl </span>ResourcePredicate&lt;#name&gt; <span class="kw">for </span>#pred_name {
+                <span class="kw">fn </span>compile&lt;C: ResourcePredicateCompiler&lt;#name&gt;&gt;(<span class="self">self</span>, compiler: C) -&gt; C::Result {
+                    <span class="kw">match </span><span class="self">self </span>{
+                        <span class="self">Self</span>::Has(pred) =&gt; compiler.fields(<span class="kw-2">*</span>pred),
+                        #compile_is_primary
+                        #compile_matches
+                        <span class="self">Self</span>::Any(preds) =&gt; compiler.any(<span class="kw-2">*</span>preds),
+                        <span class="self">Self</span>::All(preds) =&gt; compiler.all(<span class="kw-2">*</span>preds),
+                    }
+                }
+            }
 
             <span class="attr">#[doc = #quant_doc]
             #[derive(Clone, Debug, InputObject)]
@@ -1200,6 +1242,7 @@
 
                 <span class="kw">type </span>ResourcePredicate = #pred_name;
                 <span class="kw">type </span>RelationPredicate = #relation_pred_name;
+                <span class="kw">type </span>FieldsPredicate = #has_name;
 
                 <span class="kw">type </span>ResourceInput = #input_name;
 
@@ -1260,9 +1303,7 @@
     p: <span class="kw-2">&amp;</span>AttrParser,
     resource: <span class="kw-2">&amp;</span>Ident,
     plural_resource: <span class="kw-2">&amp;</span>Ident,
-    pred_name: <span class="kw-2">&amp;</span>Ident,
     f: <span class="kw-2">&amp;</span>Field,
-    primary_field: <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>Field&gt;,
 ) -&gt; TokenStream {
     <span class="kw">let </span>name = f.ident.as_ref().expect(<span class="string">&quot;Resource fields must be named&quot;</span>);
     <span class="kw">let </span>meta_name = field_meta_name(name);
@@ -1283,11 +1324,6 @@
             RelationArity::ManyToMany =&gt; <span class="macro">quote!</span>(visit_many_to_many),
             RelationArity::ManyToOne =&gt; <span class="macro">quote!</span>(visit_many_to_one),
         };
-        <span class="kw">let </span>get_primary = primary_field.map(|<span class="kw">_</span>| {
-            <span class="comment">// A relation can never be the primary field, so if we try to get the predicate on this
-            // relation from a predicate on the primary field, we simply return [`None`].
-            </span><span class="macro">quote!</span>(#pred_name::Is(<span class="kw">_</span>) =&gt; <span class="prelude-val">None</span>,)
-        });
         <span class="macro">quote! </span>{
             <span class="kw">impl </span>Relation <span class="kw">for </span>fields::#meta_name {
                 <span class="kw">type </span>Owner = #resource;
@@ -1299,36 +1335,21 @@
                 }
 
                 <span class="kw">fn </span>get_predicate(
-                    predicate: <span class="kw-2">&amp;</span>#pred_name,
+                    predicate: <span class="kw-2">&amp;</span>FieldsPredicate&lt;#resource&gt;,
                 ) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>&lt;<span class="self">Self</span>::Target <span class="kw">as </span>Resource&gt;::RelationPredicate&gt; {
-                    <span class="kw">match </span>predicate {
-                        #pred_name::Has(has) =&gt; {
-                            has.#name.as_ref()
-                        }
-                        #get_primary
-                    }
+                    predicate.#name.as_ref()
                 }
 
                 <span class="kw">fn </span>get_predicate_mut(
-                    predicate: <span class="kw-2">&amp;mut </span>#pred_name,
+                    predicate: <span class="kw-2">&amp;mut </span>FieldsPredicate&lt;#resource&gt;,
                 ) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;mut </span>&lt;<span class="self">Self</span>::Target <span class="kw">as </span>Resource&gt;::RelationPredicate&gt; {
-                    <span class="kw">match </span>predicate {
-                        #pred_name::Has(has) =&gt; {
-                            has.#name.as_mut()
-                        }
-                        #get_primary
-                    }
+                    predicate.#name.as_mut()
                 }
 
                 <span class="kw">fn </span>take_predicate(
-                    predicate: <span class="kw-2">&amp;mut </span>#pred_name,
+                    predicate: <span class="kw-2">&amp;mut </span>FieldsPredicate&lt;#resource&gt;,
                 ) -&gt; <span class="prelude-ty">Option</span>&lt;&lt;<span class="self">Self</span>::Target <span class="kw">as </span>Resource&gt;::RelationPredicate&gt; {
-                    <span class="kw">match </span>predicate {
-                        #pred_name::Has(has) =&gt; {
-                            has.#name.take()
-                        }
-                        #get_primary
-                    }
+                    predicate.#name.take()
                 }
             }
 
@@ -1337,30 +1358,6 @@
             }
         }
     } <span class="kw">else </span>{
-        <span class="kw">let </span>get_primary = primary_field.map(|primary| {
-            <span class="kw">if </span>f.ident == primary.ident {
-                <span class="macro">quote!</span>(#pred_name::Is(f) =&gt; <span class="prelude-val">Some</span>(f),)
-            } <span class="kw">else </span>{
-                <span class="macro">quote!</span>(#pred_name::Is(<span class="kw">_</span>) =&gt; <span class="prelude-val">None</span>,)
-            }
-        });
-        <span class="kw">let </span>take_primary = primary_field.map(|primary| {
-            <span class="kw">if </span>f.ident == primary.ident {
-                <span class="macro">quote!</span>(#pred_name::Is(<span class="kw">_</span>) =&gt; {
-                    <span class="comment">// If we take the primary predicate from an `Is` variant, there are no
-                    // predicates left, but `Is` requires exactly one. Thus, the predicate changes
-                    // to a `Has` variant with no fields.
-                    </span><span class="kw">let </span>#pred_name::Is(f) = std::mem::replace(
-                        predicate, #pred_name::Has(Default::default()),
-                    ) <span class="kw">else </span>{
-                        <span class="macro">unreachable!</span>();
-                    };
-                    <span class="prelude-val">Some</span>(f)
-                })
-            } <span class="kw">else </span>{
-                <span class="macro">quote!</span>(#pred_name::Is(<span class="kw">_</span>) =&gt; <span class="prelude-val">None</span>,)
-            }
-        });
         <span class="kw">let </span>input = <span class="kw">if </span>field_is_input(p, resource, plural_resource, f) {
             <span class="prelude-val">Some</span>(<span class="macro">quote! </span>{
                 <span class="kw">impl </span>InputField <span class="kw">for </span>fields::#meta_name {
@@ -1370,6 +1367,16 @@
                         <span class="kw-2">&amp;</span>input.#name
                     }
                 }
+            })
+        } <span class="kw">else </span>{
+            <span class="prelude-val">None
+        </span>};
+
+        <span class="kw">let </span>is_searchable = <span class="kw">if </span>p.has_bool(<span class="kw-2">&amp;</span>f.attrs, <span class="string">&quot;searchable&quot;</span>) {
+            <span class="prelude-val">Some</span>(<span class="macro">quote! </span>{
+                <span class="kw">fn </span>is_searchable() -&gt; bool {
+                    <span class="bool-val">true
+                </span>}
             })
         } <span class="kw">else </span>{
             <span class="prelude-val">None
@@ -1386,37 +1393,24 @@
                 }
 
                 <span class="kw">fn </span>get_predicate(
-                    predicate: <span class="kw-2">&amp;</span>#pred_name,
+                    predicate: <span class="kw-2">&amp;</span>FieldsPredicate&lt;#resource&gt;,
                 ) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;</span>&lt;<span class="self">Self</span>::Type <span class="kw">as </span>Type&gt;::Predicate&gt; {
-                    <span class="kw">match </span>predicate {
-                        #pred_name::Has(has) =&gt; {
-                            has.#name.as_ref()
-                        }
-                        #get_primary
-                    }
+                    predicate.#name.as_ref()
                 }
 
                 <span class="kw">fn </span>get_predicate_mut(
-                    predicate: <span class="kw-2">&amp;mut </span>#pred_name,
+                    predicate: <span class="kw-2">&amp;mut </span>FieldsPredicate&lt;#resource&gt;,
                 ) -&gt; <span class="prelude-ty">Option</span>&lt;<span class="kw-2">&amp;mut </span>&lt;<span class="self">Self</span>::Type <span class="kw">as </span>Type&gt;::Predicate&gt; {
-                    <span class="kw">match </span>predicate {
-                        #pred_name::Has(has) =&gt; {
-                            has.#name.as_mut()
-                        }
-                        #get_primary
-                    }
+                    predicate.#name.as_mut()
                 }
 
                 <span class="kw">fn </span>take_predicate(
-                    predicate: <span class="kw-2">&amp;mut </span>#pred_name,
+                    predicate: <span class="kw-2">&amp;mut </span>FieldsPredicate&lt;#resource&gt;,
                 ) -&gt; <span class="prelude-ty">Option</span>&lt;&lt;<span class="self">Self</span>::Type <span class="kw">as </span>Type&gt;::Predicate&gt; {
-                    <span class="kw">match </span>predicate {
-                        #pred_name::Has(has) =&gt; {
-                            has.#name.take()
-                        }
-                        #take_primary
-                    }
+                    predicate.#name.take()
                 }
+
+                #is_searchable
             }
 
             #input

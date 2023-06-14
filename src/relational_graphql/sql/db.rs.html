@@ -807,6 +807,24 @@
 <a href="#807" id="807">807</a>
 <a href="#808" id="808">808</a>
 <a href="#809" id="809">809</a>
+<a href="#810" id="810">810</a>
+<a href="#811" id="811">811</a>
+<a href="#812" id="812">812</a>
+<a href="#813" id="813">813</a>
+<a href="#814" id="814">814</a>
+<a href="#815" id="815">815</a>
+<a href="#816" id="816">816</a>
+<a href="#817" id="817">817</a>
+<a href="#818" id="818">818</a>
+<a href="#819" id="819">819</a>
+<a href="#820" id="820">820</a>
+<a href="#821" id="821">821</a>
+<a href="#822" id="822">822</a>
+<a href="#823" id="823">823</a>
+<a href="#824" id="824">824</a>
+<a href="#825" id="825">825</a>
+<a href="#826" id="826">826</a>
+<a href="#827" id="827">827</a>
 </pre><pre class="rust"><code><span class="doccomment">//! Abstract interface to a SQL database.
 
 </span><span class="kw">use crate</span>::{Array, Length};
@@ -1214,6 +1232,12 @@
         <span class="doccomment">/// Parameter to `op`.
         </span>param: Value,
     },
+    Matches {
+        <span class="doccomment">/// The text to match on, sourced from one or more columns.
+        </span>text: Vec&lt;Column&lt;<span class="lifetime">&#39;a</span>&gt;&gt;,
+        <span class="doccomment">/// The query to match against the text.
+        </span>query: Cow&lt;<span class="lifetime">&#39;a</span>, str&gt;,
+    },
     OneOf {
         <span class="doccomment">/// The column to filter.
         </span>column: Column&lt;<span class="lifetime">&#39;a</span>&gt;,
@@ -1233,6 +1257,18 @@
             column: column.into(),
             op: op.into(),
             param: param.into(),
+        }
+    }
+
+    <span class="doccomment">/// A boolean expression which checks if a body of text matches a query string.
+    </span><span class="kw">pub fn </span>matches&lt;I&gt;(text: I, query: <span class="kw">impl </span>Into&lt;Cow&lt;<span class="lifetime">&#39;a</span>, str&gt;&gt;) -&gt; <span class="self">Self
+    </span><span class="kw">where
+        </span>I: IntoIterator,
+        I::Item: Into&lt;Column&lt;<span class="lifetime">&#39;a</span>&gt;&gt;,
+    {
+        <span class="self">Self</span>::Matches {
+            text: text.into_iter().map(|c| c.into()).collect(),
+            query: query.into(),
         }
     }
 
