@@ -1680,7 +1680,7 @@ dependencies = [
  "async-postgres",
  "async-std",
  "async-trait",
- "bytes 0.5.6",
+ "bytes 1.4.0",
  "clap",
  "color-eyre",
  "convert_case 0.6.0",
